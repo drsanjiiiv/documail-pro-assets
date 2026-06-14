@@ -1,0 +1,13 @@
+# clasp local configuration (keep Script ID but don't track if it changes)
+# Actually, keep .clasp.json - it's needed for the project
+
+# OS junk files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# clasp temporary files
+.clasp.json.bak
