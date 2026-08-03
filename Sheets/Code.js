@@ -52,6 +52,21 @@ function onOpen() {
 }
 
 // ==========================================
+// AUTO-CLOSE SIDEBAR ON SHEET CHANGE
+// ==========================================
+function onSelectionChange(e) {
+  var props = PropertiesService.getDocumentProperties();
+  var anchorSheet = props.getProperty('SIDEBAR_ANCHOR_SHEET');
+  if (!anchorSheet) return;
+
+  var currentSheet = e.range.getSheet().getName();
+  if (currentSheet !== anchorSheet) {
+    props.deleteProperty('SIDEBAR_ANCHOR_SHEET');
+    SpreadsheetApp.getUi().showSidebar(null);
+  }
+}
+
+// ==========================================
 // Function (INITIALIZE_ADDON_SIDEBAR) Starts
 // ==========================================
 function INITIALIZE_ADDON_SIDEBAR() {
@@ -103,6 +118,7 @@ function INITIALIZE_ADDON_SIDEBAR() {
     .setTitle("DocuMail Pro")
     .setSandboxMode(HtmlService.SandboxMode.IFRAME);
   SpreadsheetApp.getUi().showSidebar(sidebarUi);
+  PropertiesService.getDocumentProperties().setProperty('SIDEBAR_ANCHOR_SHEET', sheet.getName());
 }
 
   // ==========================================
@@ -673,8 +689,8 @@ function SHOW_PREVIEW_DIALOG(templateId) {
 `;
 
   var loadingDialog = HtmlService.createHtmlOutput(loadingHtml)
-    .setWidth(550)
-    .setHeight(450)
+    .setWidth(650)
+    .setHeight(520)
     .setTitle('Generating Preview...');
   SpreadsheetApp.getUi().showModalDialog(loadingDialog, 'Generating Preview...');
 }
@@ -892,6 +908,9 @@ function SHOW_RUN_DIALOG(templateId) {
 // ==========================================
 function GENERATE_PREVIEW_IN_BACKGROUND(templateId) {
   try {
+    var previewFileUrl = '';
+    var previewFileDisplayName = '';
+
     // First, process the preview (generate the document)
     var template = GET_TEMPLATE_BY_ID(templateId);
     if (template && (template.type === "PDF_ONLY" || template.type === "BOTH")) {
@@ -909,11 +928,52 @@ function GENERATE_PREVIEW_IN_BACKGROUND(templateId) {
         }
       }
 
-      EXECUTE_DOCUMENT_MERGE_ENGINE(config);
+      var mergeResult = EXECUTE_DOCUMENT_MERGE_ENGINE(config);
+      if (mergeResult && typeof mergeResult === 'object' && mergeResult.fileUrl) {
+        previewFileUrl = mergeResult.fileUrl;
+        previewFileDisplayName = mergeResult.fileDisplayName || '';
+      }
+
+      // Fallback: search for the generated file directly if merge didn't return URL
+      if (!previewFileUrl) {
+        try {
+          var searchFolder = null;
+          var folderDest = template.config?.folderDestination;
+          if (folderDest) {
+            var folderId = null;
+            if (folderDest.indexOf("/folders/") > -1) {
+              folderId = folderDest.split("/folders/")[1];
+            } else if (folderDest.indexOf("id=") > -1) {
+              folderId = folderDest.split("id=")[1];
+            } else {
+              folderId = folderDest;
+            }
+            if (folderId) searchFolder = DriveApp.getFolderById(folderId);
+          }
+          var searchFiles = searchFolder ? searchFolder.getFiles() : DriveApp.getFiles();
+          var currentTime = new Date().getTime();
+          var latestFile = null;
+          var latestTime = 0;
+          while (searchFiles.hasNext()) {
+            var file = searchFiles.next();
+            var fileCreated = file.getDateCreated().getTime();
+            if (fileCreated > currentTime - 120000 && file.getName().indexOf("PROV-") !== -1) {
+              if (fileCreated > latestTime) {
+                latestTime = fileCreated;
+                latestFile = file;
+              }
+            }
+          }
+          if (latestFile) {
+            previewFileUrl = latestFile.getUrl();
+            previewFileDisplayName = latestFile.getName();
+          }
+        } catch (e) {}
+      }
     }
     
     // Then get the preview HTML
-    var result = PREVIEW_TEMPLATE(templateId);
+    var result = PREVIEW_TEMPLATE(templateId, previewFileUrl, previewFileDisplayName);
     return result;
     
   } catch (e) {
@@ -1023,23 +1083,33 @@ if ((template.type === "PDF_ONLY" || template.type === "BOTH") && result !== "NO
       html += '<h2 style="color: #1a73e8; margin: 0 0 12px 0;">✅ Execution Completed!</h2>';
       html += '<hr style="border: none; border-top: 1px solid #e8eaed; margin: 12px 0;">';
       
-      // Document Preview section - MATCHES PREVIEW STYLE
-      html += '<div style="background: #e8f0fe; padding: 16px; border-radius: 6px; margin: 12px 0;">';
-      html += '<h3 style="color: #1a73e8; margin: 0 0 10px 0;">📄 Document Preview</h3>';
-      html += '<p style="margin: 0 0 8px 0;"><strong>Template:</strong> ' + escapeHtml(template.name) + '</p>';
-      html += '<p style="margin: 0 0 8px 0;"><strong>Type:</strong> ' + (template.type === "PDF_ONLY" ? "PDF Only" : template.type === "EMAIL_ONLY" ? "Email Only" : "PDF & Email") + '</p>';
-      html += '<p style="margin: 0;"><strong>Destination:</strong> ' + escapeHtml(template.config?.folderDestination || "Default Folder") + '</p>';
-      html += '</div>';
+      if (template.type === "EMAIL_ONLY") {
+        html += '<div style="background: #e8f0fe; padding: 16px; border-radius: 6px; margin: 12px 0;">';
+        html += '<h3 style="color: #1a73e8; margin: 0 0 10px 0;">📧 Email Summary</h3>';
+        html += '<p style="margin: 0 0 8px 0;"><strong>Template:</strong> ' + escapeHtml(template.name) + '</p>';
+        html += '<p style="margin: 0;"><strong>Type:</strong> Email Only</p>';
+        html += '</div>';
+      } else {
+        html += '<div style="background: #e8f0fe; padding: 16px; border-radius: 6px; margin: 12px 0;">';
+        html += '<h3 style="color: #1a73e8; margin: 0 0 10px 0;">📄 Document Preview</h3>';
+        html += '<p style="margin: 0 0 8px 0;"><strong>Template:</strong> ' + escapeHtml(template.name) + '</p>';
+        html += '<p style="margin: 0 0 8px 0;"><strong>Type:</strong> ' + (template.type === "PDF_ONLY" ? "PDF Only" : "PDF & Email") + '</p>';
+        html += '<p style="margin: 0;"><strong>Destination:</strong> ' + escapeHtml(template.config?.folderDestination || "Default Folder") + '</p>';
+        html += '</div>';
+      }
       
       // Result section
       html += '<div style="background: #e6f4ea; padding: 16px; border-radius: 6px; margin: 12px 0; border-left: 4px solid #137333;">';
-      html += '<p style="margin: 0; color: #137333;"><strong>✅ Documents Generated Successfully!</strong></p>';
+      var successMsg = template.type === "EMAIL_ONLY" ? "✅ Emails Sent Successfully!" : "✅ Documents Generated Successfully!";
+      html += '<p style="margin: 0; color: #137333;"><strong>' + successMsg + '</strong></p>';
       html += '<p style="margin: 5px 0;"><strong>Result:</strong> ' + result.replace(/\n/g, '<br>') + '</p>';
 
-      // Add daily quota info
-      var remainingQuota = MailApp.getRemainingDailyQuota();
-      var quotaColor = remainingQuota < 20 ? '#e37400' : '#137333';
-      html += '<p style="margin: 8px 0 0 0; color: ' + quotaColor + ';"><strong>📊 Daily Email Quota Remaining:</strong> ' + remainingQuota + ' emails</p>';
+      // Add daily quota info (only for email-related types)
+      if (template.type !== "PDF_ONLY") {
+        var remainingQuota = MailApp.getRemainingDailyQuota();
+        var quotaColor = remainingQuota < 20 ? '#e37400' : '#137333';
+        html += '<p style="margin: 8px 0 0 0; color: ' + quotaColor + ';"><strong>📊 Daily Email Quota Remaining:</strong> ' + remainingQuota + ' emails</p>';
+      }
 
       html += '</div>';
       

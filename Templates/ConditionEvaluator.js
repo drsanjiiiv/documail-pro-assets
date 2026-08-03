@@ -80,6 +80,9 @@ function evaluateCondition(varValue, operator, targetValue) {
     case '>=': return currentVal.toLowerCase() >= criteriaVal.toLowerCase();
     case '<=': return currentVal.toLowerCase() <= criteriaVal.toLowerCase();
     case 'contains': return currentVal.toLowerCase().indexOf(criteriaVal.toLowerCase()) !== -1;
+    case 'notcontains': return currentVal.toLowerCase().indexOf(criteriaVal.toLowerCase()) === -1;
+    case 'startswith': return currentVal.toLowerCase().startsWith(criteriaVal.toLowerCase());
+    case 'endswith': return currentVal.toLowerCase().endsWith(criteriaVal.toLowerCase());
     default: return false;
   }
 }

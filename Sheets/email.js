@@ -7,9 +7,9 @@
  * ============================================================================
  */
 
-function executeEmailSend(selectedRows, emailConfig, templateName, tagMappings) { // 👈 ADDED tagMappings
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var allHeaders = GET_ALL_RAW_HEADERS();
+function executeEmailSend(selectedRows, emailConfig, templateName, tagMappings, optSheet) {
+  var sheet = optSheet || SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var allHeaders = GET_ALL_RAW_HEADERS(sheet);
   var emailColIdx = -1;
 
   for (var c = 0; c < allHeaders.length; c++) {
@@ -44,7 +44,7 @@ function executeEmailSend(selectedRows, emailConfig, templateName, tagMappings) 
       continue;
     }
 
-    var recipient = data[i][emailColIdx];
+    var recipient = RESOLVE_RECIPIENT(emailConfig, data[i], allHeaders, emailColIdx);
     if (!recipient || recipient.indexOf("@") === -1) continue;
 
     var subject = emailConfig.subject || "";
@@ -98,10 +98,17 @@ function executeEmailSend(selectedRows, emailConfig, templateName, tagMappings) 
       }
     }
 
+    var mailOptions = { htmlBody: body };
+    if (emailConfig.replyTo) mailOptions.replyTo = emailConfig.replyTo;
+    if (emailConfig.cc) mailOptions.cc = emailConfig.cc;
+    if (emailConfig.bcc) mailOptions.bcc = emailConfig.bcc;
+
     try {
-      GmailApp.sendEmail(recipient, subject, "", { htmlBody: body });
+      GmailApp.sendEmail(recipient, subject, "", mailOptions);
       var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-      sheet.getRange(rowNum, statusColIdx + 1).setValue("Sent to " + recipient + " on " + timestamp);
+      var ccSuffix = emailConfig.cc ? " (CC: " + emailConfig.cc + ")" : "";
+      var bccSuffix = emailConfig.bcc ? " (BCC: " + emailConfig.bcc + ")" : "";
+      sheet.getRange(rowNum, statusColIdx + 1).setValue("Sent to " + recipient + " on " + timestamp + ccSuffix + bccSuffix);
       sent++;
       CHECK_DAILY_QUOTA_ALERT();
     } catch (e) {
@@ -154,7 +161,7 @@ function executeEmailSendWithAttachments(emailConfig, folderId, templateName, ta
         var existingStatus = String(data[i][statusColIdx] || "").trim();
         if (existingStatus !== "") continue;
 
-        var recipient = data[i][emailColIdx];
+        var recipient = RESOLVE_RECIPIENT(emailConfig, data[i], allHeaders, emailColIdx);
         if (!recipient || recipient.indexOf("@") === -1) continue;
 
         var subject = emailConfig.subject || "";
@@ -221,7 +228,9 @@ function executeEmailSendWithAttachments(emailConfig, folderId, templateName, ta
         try {
             GmailApp.sendEmail(recipient, subject, "", mailOptions);
             var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-            sheet.getRange(rowNum, statusColIdx + 1).setValue("Sent to " + recipient + " on " + timestamp + " (with PDF)");
+            var ccSuffix = emailConfig.cc ? " (CC: " + emailConfig.cc + ")" : "";
+            var bccSuffix = emailConfig.bcc ? " (BCC: " + emailConfig.bcc + ")" : "";
+            sheet.getRange(rowNum, statusColIdx + 1).setValue("Sent to " + recipient + " on " + timestamp + " (with PDF)" + ccSuffix + bccSuffix);
             sent++;
             CHECK_DAILY_QUOTA_ALERT();
         } catch (e) {

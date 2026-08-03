@@ -31,13 +31,13 @@ function getSheetHeaders() {
       var cleanHeader = headerVal.toString().trim();
       if (cleanHeader === "") continue;
       
-      // Push header onto the workspace array
+      var hStr = cleanHeader.toLowerCase();
+      if (hStr.indexOf("merged doc status") !== -1) break;
+      if (hStr.indexOf("merged doc id") !== -1) continue;
+      if (hStr.indexOf("merged doc url") !== -1) continue;
+      if (hStr.indexOf("sent mail status") !== -1) continue;
+
       filteredHeaders.push(cleanHeader);
-      
-      // Stop checking immediately the exact moment we hit the Recipient boundary
-      if (cleanHeader.toLowerCase() === "recipient email") {
-        break;
-      }
     }
     
     return filteredHeaders;

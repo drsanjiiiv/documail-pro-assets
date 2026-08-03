@@ -226,6 +226,62 @@
       margin-bottom: 4px;
     }
 
+    .email-step-layout.active[data-visible="true"] {
+      display: flex !important;
+      gap: 16px;
+    }
+
+    .email-step-layout .email-form-pane {
+      flex: 4;
+      min-width: 0;
+    }
+
+    .email-step-layout .email-tags-pane {
+      flex: 1;
+      background: #f1f3f4;
+      padding: 14px;
+      border-radius: 6px;
+      border: 1px solid #dadce0;
+      max-height: calc(100vh - 260px);
+      overflow-y: auto;
+      position: sticky;
+      top: 0;
+    }
+
+    .email-step-layout .email-tags-pane .tag-section-title {
+      font-size: 11px;
+      font-weight: bold;
+      color: #d93025;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .email-step-layout .email-tags-pane .tag-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 10px;
+      margin-bottom: 6px;
+      background: #ffffff;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: monospace;
+      font-weight: bold;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      outline: none;
+    }
+
+    .email-step-layout .email-tags-pane .tag-btn:hover {
+      background: #e8f0fe;
+      border-color: #1a73e8;
+      color: #1a73e8;
+    }
+
     .editor-toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -520,30 +576,27 @@
       </div>
 
       <!-- STEP 7: Email Configuration -->
-      <div class="step-panel" id="panelStep7" data-visible="true" data-email-step="true">
-        <p class="instruction-text">Configure your email template. Click on the fields and use the tags list below to
-          insert them into your Subject or Email Body.</p>
-        <div id="emailConfigError" class="error-box" style="display:none;"></div>
-        <div class="field-row"><label>To:</label><input type="text" id="emailTo" value="{Recipient Email}"
-            style="background:#f1f3f4;"></div>
-        <div class="field-row"><label>Reply-To:</label><input type="text" id="emailReplyTo"
-            placeholder="optional@domain.com"></div>
-        <div class="field-row"><label>CC:</label><input type="text" id="emailCc" placeholder="cc@domain.com"></div>
-        <div class="field-row"><label>BCC:</label><input type="text" id="emailBcc" placeholder="bcc@domain.com"></div>
-        <div class="field-row"><label>Subject:</label><input type="text" id="emailSubject" value="Notification"></div>
-        <div class="field-row"><label>Email Body:</label>
-          <div class="editor-toolbar">
-            <button type="button" class="editor-btn" onclick="execCmd('bold')">B</button>
-            <button type="button" class="editor-btn" onclick="execCmd('italic')">I</button>
-            <button type="button" class="editor-btn" onclick="execCmd('underline')">U</button>
+      <div class="step-panel email-step-layout" id="panelStep7" data-visible="true" data-email-step="true">
+        <div class="email-form-pane">
+          <p class="instruction-text">Configure your email template. Use the tags panel on the right to insert tags into
+            any field.</p>
+          <div id="emailConfigError" class="error-box" style="display:none;"></div>
+          <div class="field-row"><label>To:</label><input type="text" id="emailTo"
+              placeholder="Select from tags or type email"></div>
+          <div class="field-row"><label>Reply-To:</label><input type="text" id="emailReplyTo"
+              placeholder="optional@domain.com"></div>
+          <div class="field-row"><label>CC:</label><input type="text" id="emailCc" placeholder="cc@domain.com"></div>
+          <div class="field-row"><label>BCC:</label><input type="text" id="emailBcc" placeholder="bcc@domain.com"></div>
+          <div class="field-row"><label>Subject:</label><input type="text" id="emailSubject" value="Notification"></div>
+          <div class="field-row"><label>Email Body:</label>
+            <div class="editor-toolbar">
+              <button type="button" class="editor-btn" onclick="execCmd('bold')">B</button>
+              <button type="button" class="editor-btn" onclick="execCmd('italic')">I</button>
+              <button type="button" class="editor-btn" onclick="execCmd('underline')">U</button>
+            </div>
+            <div id="emailBodyCanvas" class="editor-canvas" contenteditable="true"></div>
           </div>
-          <div id="emailBodyCanvas" class="editor-canvas" contenteditable="true"></div>
-        </div>
-        <div style="margin-top: 15px; margin-bottom: 15px;">
-          <span class="tag-instruction-red">List of available tags you can use:</span>
-          <div id="emailTemplateTagsContainer"></div>
-        </div>
-        <div class="attachment-box">
+          <div class="attachment-box">
           <div>
             <button class="btn-link-drive" type="button" onclick="addDriveFileLink()">📎 Add Drive File</button>
             <button class="btn-browse-local" type="button"
@@ -551,6 +604,13 @@
             <input type="file" id="localFileInput" style="display:none;" onchange="handleLocalFileUpload(this)">
           </div>
           <ul id="filesTrackRecordList" class="attachment-list"></ul>
+        </div>
+        </div>
+        <div class="email-tags-pane">
+          <div class="tag-section-title">Available Tags (Click to Inject)</div>
+          <div id="rightTagsContainer">
+            <p style="font-size:11px; color:#5f6368; font-style:italic;">Loading tags...</p>
+          </div>
         </div>
       </div>
 
@@ -624,7 +684,7 @@
     var activeLocalFilesCache = [];
     var existingTemplates = [];
     var pendingTagMappings = null;
-    var lastFocusedEmailField = "BODY";
+    var lastFocusedTagTargetId = "emailBodyCanvas";
     var savedBodyRangeSelection = null;
     var isFinishing = false;
     var initialLoadCompleted = false;
@@ -664,17 +724,10 @@
       }
     }
 
-    function handleSmartEmailTagInsertion(tagText) {
-      if (lastFocusedEmailField === "SUBJECT") {
-        var subInput = document.getElementById("emailSubject");
-        if (!subInput) return;
-        var startPos = subInput.selectionStart;
-        var endPos = subInput.selectionEnd;
-        var currentVal = subInput.value;
-        subInput.value = currentVal.substring(0, startPos) + tagText + currentVal.substring(endPos, currentVal.length);
-        subInput.focus();
-        subInput.selectionStart = subInput.selectionEnd = startPos + tagText.length;
-      } else {
+    function injectTagToFocusedField(tagText) {
+      var targetId = lastFocusedTagTargetId;
+      if (!targetId) targetId = "emailBodyCanvas";
+      if (targetId === "emailBodyCanvas") {
         var canvas = document.getElementById("emailBodyCanvas");
         if (!canvas) return;
         canvas.focus();
@@ -699,6 +752,15 @@
         }
         canvas.innerHTML += tagText;
         savedBodyRangeSelection = null;
+      } else {
+        var input = document.getElementById(targetId);
+        if (!input) return;
+        var startPos = input.selectionStart;
+        var endPos = input.selectionEnd;
+        var currentVal = input.value;
+        input.value = currentVal.substring(0, startPos) + tagText + currentVal.substring(endPos, currentVal.length);
+        input.focus();
+        input.selectionStart = input.selectionEnd = startPos + tagText.length;
       }
     }
 
@@ -1044,7 +1106,7 @@
         .withFailureHandler(function (err) {
           console.log("⚠️ Auto-save failed for Step " + step + ": " + err.message);
         })
-        .SAVE_TEMPLATE_WITH_SCHEDULE(templateData, "MANUAL", templateId);  // ← Pass templateId
+        .SAVE_TEMPLATE_WITH_SCHEDULE(templateData, document.querySelector('input[name="schedule"]:checked')?.value || "MANUAL", templateId);  // ← Pass templateId
     }
 
 
@@ -1395,7 +1457,7 @@
           }
         })
 
-        .SAVE_TEMPLATE_WITH_SCHEDULE(template, "MANUAL", false);
+        .SAVE_TEMPLATE_WITH_SCHEDULE(template, document.querySelector('input[name="schedule"]:checked')?.value || "MANUAL", false);
     }
 
     // =======================================================
@@ -1408,6 +1470,7 @@
       var emailConfig = {};
       if (templateType === "EMAIL_ONLY" || templateType === "BOTH") {
         emailConfig = {
+          to: document.getElementById('emailTo')?.value || "",
           subject: document.getElementById('emailSubject')?.value || "",
           body: document.getElementById('emailBodyCanvas')?.innerHTML || "",
           replyTo: document.getElementById('emailReplyTo')?.value || "",
@@ -1872,6 +1935,7 @@
   }
 
   if (existing.emailConfig) {
+    document.getElementById('emailTo').value = existing.emailConfig.to || '';
     document.getElementById('emailReplyTo').value = existing.emailConfig.replyTo || '';
     document.getElementById('emailCc').value = existing.emailConfig.cc || '';
     document.getElementById('emailBcc').value = existing.emailConfig.bcc || '';
@@ -1880,6 +1944,11 @@
     activeDriveLinksCache = existing.emailConfig.driveAttachments || [];
     activeLocalFilesCache = existing.emailConfig.localAttachments || [];
     renderAttachments();
+  }
+
+  if (existing.schedule) {
+    var scheduleRadio = document.querySelector('input[name="schedule"][value="' + existing.schedule + '"]');
+    if (scheduleRadio) scheduleRadio.checked = true;
   }
 
   // ✅ RENDER SAVED MAPPINGS IMMEDIATELY - NO SERVER CALL
@@ -2022,14 +2091,17 @@
       renderProgressDots();
       initiateNativeGooglePickerLibraries();
 
-      var bodyCanvas = document.getElementById("emailBodyCanvas");
-      document.getElementById("emailSubject").addEventListener("focus", function () {
-        lastFocusedEmailField = "SUBJECT";
+      var step7Fields = ["emailTo", "emailReplyTo", "emailCc", "emailBcc", "emailSubject", "emailBodyCanvas"];
+      step7Fields.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.addEventListener("focus", function () {
+            lastFocusedTagTargetId = id;
+          });
+        }
       });
+      var bodyCanvas = document.getElementById("emailBodyCanvas");
       if (bodyCanvas) {
-        bodyCanvas.addEventListener("focus", function () {
-          lastFocusedEmailField = "BODY";
-        });
         bodyCanvas.addEventListener("keyup", updateSavedSelection);
         bodyCanvas.addEventListener("mouseup", updateSavedSelection);
         bodyCanvas.addEventListener("blur", updateSavedSelection);
@@ -2084,17 +2156,18 @@
           });
         }
 
-        var emailTagsContainer = document.getElementById('emailTemplateTagsContainer');
-        if (emailTagsContainer) {
-          emailTagsContainer.innerHTML = "";
+        var rightTagsContainer = document.getElementById('rightTagsContainer');
+        if (rightTagsContainer) {
+          rightTagsContainer.innerHTML = "";
           userColumnsCache.forEach(function (h) {
-            var span = document.createElement('span');
-            span.className = "tag-chip";
-            span.innerText = "{" + h + "}";
-            span.onclick = function () {
-              handleSmartEmailTagInsertion("{" + h + "}");
+            var btn = document.createElement('button');
+            btn.className = "tag-btn";
+            btn.innerText = "{" + h + "}";
+            btn.type = "button";
+            btn.onclick = function () {
+              injectTagToFocusedField("{" + h + "}");
             };
-            emailTagsContainer.appendChild(span);
+            rightTagsContainer.appendChild(btn);
           });
         }
 

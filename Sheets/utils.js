@@ -118,7 +118,8 @@ function FORMAT_DATE_FOR_DISPLAY(dateValue) {
 function FORMAT_NUMBER_FOR_DISPLAY(value, currencyOverride) {
   if (typeof value !== 'number') return String(value || "");
 
-  var locale = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetLocale() || 'en_US';
+  var locale = 'en_US';
+  try { locale = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetLocale(); } catch (e) {}
 
   try {
     if (currencyOverride) {

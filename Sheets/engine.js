@@ -9,11 +9,11 @@
 // ==========================================
 // FUNCTION: EXECUTE_DOCUMENT_MERGE_ENGINE Starts
 // ==========================================
-function EXECUTE_DOCUMENT_MERGE_ENGINE(payload) {
+function EXECUTE_DOCUMENT_MERGE_ENGINE(payload, optSheet) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getActiveSheet();
-    var allHeaders = GET_ALL_RAW_HEADERS();
+    var ss = optSheet ? optSheet.getParent() : SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = optSheet || ss.getActiveSheet();
+    var allHeaders = GET_ALL_RAW_HEADERS(sheet);
 
     // Find column indices
     var docStatusColIdx = -1;
@@ -108,11 +108,10 @@ var displayValues = sheet.getRange(2, 1, lastRow - 1, allHeaders.length).getDisp
 
       if (!isTargetEligible) continue;
 
-      // Check if PDF already exists (Strict skip for BOTH Preview and Live Runs)
       var existingStatus = String(rowData[docStatusColIdx] || "").trim();
       if (existingStatus === "Success") {
         skippedCount++;
-        continue; // Immediately drop out and evaluate the next row
+        continue;
       }
 
       // For preview mode, only process one row
@@ -265,6 +264,16 @@ var displayValues = sheet.getRange(2, 1, lastRow - 1, allHeaders.length).getDisp
 
     // If something was processed, report success clean
     if (processedCount > 0) {
+      if (payload.isPreview) {
+        return {
+          result: "preview_done",
+          message: mode + " Completed Successfully!\n\n✅ New Documents Created: " + processedCount +
+            (skippedCount > 0 ? "\n⏭️ Skipped Completed Rows: " + skippedCount : "") +
+            "\n📂 Saved to Destination Folder: " + destinationFolder.getName(),
+          fileUrl: finalFileUrl || '',
+          fileDisplayName: fileName || ''
+        };
+      }
       return mode + " Completed Successfully! 🎉\n\n✅ New Documents Created: " + processedCount +
         (skippedCount > 0 ? "\n⏭️ Skipped Completed Rows: " + skippedCount : "") +
         "\n📂 Saved to Destination Folder: " + destinationFolder.getName();
@@ -286,7 +295,7 @@ var displayValues = sheet.getRange(2, 1, lastRow - 1, allHeaders.length).getDisp
 // ==========================================
 // FUNCTION: EXECUTE_DOCUMENT_MERGE_ENGINE_FOR_SINGLE_ROW Starts
 // ==========================================
-function EXECUTE_DOCUMENT_MERGE_ENGINE_FOR_SINGLE_ROW(payload, singleRowData, rowNum, allHeaders, singleRowDisplayData) {
+function EXECUTE_DOCUMENT_MERGE_ENGINE_FOR_SINGLE_ROW(payload, singleRowData, rowNum, allHeaders, singleRowDisplayData, optSheet) {
   if (!singleRowData || singleRowData.length === 0) {
     return { success: false, error: "No data row provided." };
   }
@@ -407,6 +416,8 @@ function EXECUTE_DOCUMENT_MERGE_ENGINE_FOR_SINGLE_ROW(payload, singleRowData, ro
       }
     }
 
+    newDoc.saveAndClose();
+
     var finalFileId = newDocId;
     var finalFileUrl = newDocFile.getUrl();
 
@@ -419,8 +430,8 @@ function EXECUTE_DOCUMENT_MERGE_ENGINE_FOR_SINGLE_ROW(payload, singleRowData, ro
       finalFileUrl = pdfFile.getUrl();
     }
 
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    var allSheetHeaders = GET_ALL_RAW_HEADERS();
+    var sheet = optSheet || SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var allSheetHeaders = GET_ALL_RAW_HEADERS(sheet);
 
     var docStatusColIdx = -1;
     var docIdColIdx = -1;
@@ -474,7 +485,7 @@ function EXTRACT_TEMPLATE_TAGS_STREAM(docUrl) {
 // ============================================================================
 // PREVIEW TEMPLATE FUNCTION - PERFECT INTEGRATION WITH SKIP LOGIC
 // ============================================================================
-function PREVIEW_TEMPLATE(templateId) {
+function PREVIEW_TEMPLATE(templateId, previewFileUrl, previewFileName) {
   try {
     var template = GET_TEMPLATE_BY_ID(templateId);
     if (!template) return { name: "Not Found", previewHtml: "<p>Template not found</p>" };
@@ -524,21 +535,18 @@ function PREVIEW_TEMPLATE(templateId) {
     var data = sheet.getRange(2, 1, lastRow - 1, allHeaders.length).getValues();
     var previewRow = null;
 
-    // Strict Sync Logic: Iterates over rows exactly as RUN behaves
     for (var i = 0; i < data.length; i++) {
       var evalCellText = String(data[i][criteriaColIdx] || "").trim();
       var isCriteriaMatch = false;
 
-      // 1. Evaluate general filter condition matching rules
       if (template.config.condOperator === "NOT_EMPTY" && evalCellText !== "") {
         isCriteriaMatch = true;
       } else if (template.config.condOperator === "CONTAINS" && evalCellText.toLowerCase().indexOf(String(template.config.condValue).toLowerCase().trim()) !== -1) {
         isCriteriaMatch = true;
       }
 
-      // 2. Strict Skip Check: Bypass based on specific template types
       if (isCriteriaMatch) {
-        if (template.type === "PDF_ONLY") {
+        if (template.type === "PDF_ONLY" || template.type === "BOTH") {
           if (docStatusColIdx !== -1 && String(data[i][docStatusColIdx] || "").trim() === "Success") {
             continue;
           }
@@ -546,15 +554,8 @@ function PREVIEW_TEMPLATE(templateId) {
           if (emailStatusColIdx !== -1 && String(data[i][emailStatusColIdx] || "").trim() !== "") {
             continue;
           }
-        } else if (template.type === "BOTH") {
-          var pdfDone = (docStatusColIdx !== -1 && String(data[i][docStatusColIdx] || "").trim() === "Success");
-          var emailDone = (emailStatusColIdx !== -1 && String(data[i][emailStatusColIdx] || "").trim() !== "");
-          if (pdfDone && emailDone) {
-            continue;
-          }
         }
 
-        // Found the proper un-processed record row match
         previewRow = data[i];
         break;
       }
@@ -567,8 +568,8 @@ function PREVIEW_TEMPLATE(templateId) {
       '<h2 style="color: #f2994a; margin: 0 0 12px 0;">ℹ️ No Rows Eligible</h2>' +
       '<hr style="border: none; border-top: 1px solid #e8eaed; margin: 12px 0;">' +
       '<div style="background: #fff3cd; padding: 16px; border-radius: 6px; margin: 12px 0; border-left: 4px solid #f2994a; color: #856404; line-height: 1.6;">' +
-      'All rows matching your filter conditions have already been merged successfully with a status of <strong>Success</strong>.<br><br>' +
-      'There are no fresh pending records available to preview layout results against.' +
+      'All rows matching your filter conditions have already been processed.<br><br>' +
+      'There are no fresh pending records available to preview against.' +
       '</div>' +
       '<hr style="border: none; border-top: 1px solid #e8eaed; margin: 16px 0;">' +
       '<div style="margin-top: 20px; text-align: center;">' +
@@ -593,7 +594,22 @@ function PREVIEW_TEMPLATE(templateId) {
       }
     }
 
-    var recipientEmail = previewRow[emailColIdx] || "example@email.com";
+    var recipientEmail = "example@email.com";
+    var emailToConfig = template.emailConfig?.to || "";
+    if (emailToConfig) {
+      var toTagMatch = emailToConfig.match(/^\{(.+)\}$/);
+      if (toTagMatch) {
+        var toColName = toTagMatch[1];
+        var toColIdx = allHeaders.indexOf(toColName);
+        if (toColIdx !== -1) {
+          recipientEmail = previewRow[toColIdx] || recipientEmail;
+        }
+      } else {
+        recipientEmail = emailToConfig;
+      }
+    } else {
+      recipientEmail = previewRow[emailColIdx] || recipientEmail;
+    }
     var emailSubject = template.emailConfig?.subject || "";
     var emailBody = template.emailConfig?.body || "";
 
@@ -614,64 +630,75 @@ function PREVIEW_TEMPLATE(templateId) {
       }
     }
 
-    var previewHtml = '<div style="font-family: Roboto, sans-serif; padding: 20px;">';
+    var previewHtml = '<style>body{display:block!important;align-items:initial!important;justify-content:initial!important;overflow-y:auto;margin:0;padding:0;}</style><div style="font-family: Roboto, sans-serif; padding: 20px;">';
     previewHtml += '<h2 style="color:#1a73e8;">✅ Preview Generated Successfully!</h2><hr>';
     previewHtml += '<p><strong>📄 Template Name:</strong> ' + escapeHtml(template.name) + '</p>';
     previewHtml += '<p><strong>📋 Template Type:</strong> ' + (template.type === "PDF_ONLY" ? "PDF Only" : template.type === "EMAIL_ONLY" ? "Email Only" : "PDF & Email") + '</p>';
 
-    if (template.type === "PDF_ONLY" || template.type === "BOTH") {
-      var fileUrl = '';
-      var fileName = '';
-      try {
-        var folderId = template.config?.folderDestination;
-        if (folderId) {
-          var folderIdExtracted = folderId.split("/folders/")[1] || folderId.split("id=")[1];
-          if (folderIdExtracted) {
-            try {
-              var folder = DriveApp.getFolderById(folderIdExtracted);
-              var files = folder.getFiles();
-              var currentTime = new Date().getTime();
-              var latestFile = null;
-              var latestTime = 0;
-              while (files.hasNext()) {
-                var file = files.next();
-                var fileCreated = file.getDateCreated().getTime();
-                if (fileCreated > currentTime - 60000 && file.getName().indexOf("PROV-") !== -1) {
-                  if (fileCreated > latestTime) {
-                    latestTime = fileCreated;
-                    latestFile = file;
+    var showDocumentSection = (template.type === "PDF_ONLY" || template.type === "BOTH" || !!previewFileUrl);
+    if (showDocumentSection) {
+      var fileUrl = previewFileUrl || '';
+      var fileName = previewFileName || '';
+
+      if (!fileUrl) {
+        try {
+          var folderId = template.config?.folderDestination;
+          if (folderId) {
+            var folderIdExtracted = null;
+            if (folderId.indexOf("/folders/") > -1) {
+              folderIdExtracted = folderId.split("/folders/")[1];
+            } else if (folderId.indexOf("id=") > -1) {
+              folderIdExtracted = folderId.split("id=")[1];
+            } else {
+              folderIdExtracted = folderId;
+            }
+            if (folderIdExtracted) {
+              try {
+                var folder = DriveApp.getFolderById(folderIdExtracted);
+                var files = folder.getFiles();
+                var currentTime = new Date().getTime();
+                var latestFile = null;
+                var latestTime = 0;
+                while (files.hasNext()) {
+                  var file = files.next();
+                  var fileCreated = file.getDateCreated().getTime();
+                  if (fileCreated > currentTime - 120000 && file.getName().indexOf("PROV-") !== -1) {
+                    if (fileCreated > latestTime) {
+                      latestTime = fileCreated;
+                      latestFile = file;
+                    }
                   }
                 }
-              }
-              if (latestFile) {
-                fileUrl = latestFile.getUrl();
-                fileName = latestFile.getName();
-              }
-            } catch (e) { }
-          }
-        }
-
-        if (!fileUrl) {
-          var rootFiles = DriveApp.getFiles();
-          var currentTime = new Date().getTime();
-          var latestFile = null;
-          var latestTime = 0;
-          while (rootFiles.hasNext()) {
-            var file = rootFiles.next();
-            var fileCreated = file.getDateCreated().getTime();
-            if (fileCreated > currentTime - 60000 && file.getName().indexOf("PROV-") !== -1) {
-              if (fileCreated > latestTime) {
-                latestTime = fileCreated;
-                latestFile = file;
-              }
+                if (latestFile) {
+                  fileUrl = latestFile.getUrl();
+                  fileName = latestFile.getName();
+                }
+              } catch (e) { }
             }
           }
-          if (latestFile) {
-            fileUrl = latestFile.getUrl();
-            fileName = latestFile.getName();
+
+          if (!fileUrl) {
+            var rootFiles = DriveApp.getFiles();
+            var currentTime = new Date().getTime();
+            var latestFile = null;
+            var latestTime = 0;
+            while (rootFiles.hasNext()) {
+              var file = rootFiles.next();
+              var fileCreated = file.getDateCreated().getTime();
+              if (fileCreated > currentTime - 120000 && file.getName().indexOf("PROV-") !== -1) {
+                if (fileCreated > latestTime) {
+                  latestTime = fileCreated;
+                  latestFile = file;
+                }
+              }
+            }
+            if (latestFile) {
+              fileUrl = latestFile.getUrl();
+              fileName = latestFile.getName();
+            }
           }
-        }
-      } catch (e) { }
+        } catch (e) { }
+      }
 
       previewHtml += '<div style="background:#e8f0fe; padding:12px; border-radius:6px; margin:10px 0;">';
       previewHtml += '<h3 style="color:#1a73e8; margin:0 0 10px 0;">📄 Document Preview</h3>';
@@ -686,7 +713,22 @@ function PREVIEW_TEMPLATE(templateId) {
         previewHtml += '<p style="margin:8px 0 0 0; color:#c5221f; font-weight:500; border-top:1px solid #dadce0; padding-top:8px;">⚠️ This is a Preview Only file - not for production use</p>';
         previewHtml += '</div>';
       } else {
-        previewHtml += '<p><em>`✅ Preview file generated with PROV- prefix. Check your Google Drive folder.`</em></p>';
+        var folderUrl = template.config?.folderDestination || '';
+        var hasDocTemplate = !!(template.config?.templateUrl);
+        var docMissing = !hasDocTemplate;
+
+        previewHtml += '<div style="background:#fff3cd; padding:12px; border-radius:6px; margin:10px 0; border-left:4px solid #f2994a;">';
+        if (docMissing) {
+          previewHtml += '<p style="margin:0; color:#856404;"><strong>⚠️ No document template selected</strong></p>';
+          previewHtml += '<p style="margin:5px 0; color:#856404;">Please edit the template and select a Google Document in Step 2 to generate preview files.</p>';
+        } else {
+          previewHtml += '<p style="margin:0; color:#856404;"><strong>✅ Preview processing complete</strong></p>';
+          previewHtml += '<p style="margin:5px 0; color:#856404;">The preview file could not be located. It may have been cleaned up or the merge encountered an issue.</p>';
+          if (folderUrl) {
+            previewHtml += '<p style="margin:5px 0;"><a href="' + folderUrl + '" target="_blank">📂 Check destination folder in Drive</a></p>';
+          }
+        }
+        previewHtml += '</div>';
       }
       previewHtml += '</div>';
     }
@@ -708,11 +750,10 @@ function PREVIEW_TEMPLATE(templateId) {
   }
 }
 
-function RUN_TEMPLATE(templateId) {
-  var template = GET_TEMPLATE_BY_ID(templateId);
+function RUN_TEMPLATE(templateId, optSheet, optTemplate) {
+  var sheet = optSheet || SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var template = optTemplate || GET_TEMPLATE_BY_ID(templateId, sheet.getName());
   if (!template) return "Template not found";
-
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
     return "No data rows found. Please add data to your sheet before running the template.";
@@ -721,12 +762,12 @@ function RUN_TEMPLATE(templateId) {
   if (template.type === "PDF_ONLY") {
     var config = JSON.parse(JSON.stringify(template.config));
     config.isPreview = false;
-    var result = EXECUTE_DOCUMENT_MERGE_ENGINE(config);
+    var result = EXECUTE_DOCUMENT_MERGE_ENGINE(config, sheet);
     return result;
   }
 
   if (template.type === "EMAIL_ONLY") {
-    var allHeaders = GET_ALL_RAW_HEADERS();
+    var allHeaders = GET_ALL_RAW_HEADERS(sheet);
     var emailColIdx = -1;
 
     for (var c = 0; c < allHeaders.length; c++) {
@@ -762,12 +803,12 @@ function RUN_TEMPLATE(templateId) {
     }
 
     if (selectedRows.length === 0) return "NO_ROWS_ELIGIBLE";
-    return executeEmailSend(selectedRows, template.emailConfig, template.name);
+    return executeEmailSend(selectedRows, template.emailConfig, template.name, template.config.tagMappings, sheet);
   }
 
   if (template.type === "BOTH") {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    var allHeaders = GET_ALL_RAW_HEADERS();
+    var sheet = optSheet || SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var allHeaders = GET_ALL_RAW_HEADERS(sheet);
 
     var docStatusColIdx = -1;
     var docIdColIdx = -1;
@@ -835,7 +876,7 @@ function RUN_TEMPLATE(templateId) {
 
         var singleRowData = [data[i]];
         var singleRowDisplayData = displayData[i];
-        var result = EXECUTE_DOCUMENT_MERGE_ENGINE_FOR_SINGLE_ROW(config, singleRowData, rowNum, allHeaders, singleRowDisplayData);
+        var result = EXECUTE_DOCUMENT_MERGE_ENGINE_FOR_SINGLE_ROW(config, singleRowData, rowNum, allHeaders, singleRowDisplayData, sheet);
 
         if (result.success) {
           pdfGenerated = true;
@@ -851,27 +892,51 @@ function RUN_TEMPLATE(templateId) {
       var emailStatus = String(data[i][emailStatusColIdx] || "").trim();
       if (emailStatus !== "") continue;
 
-      var recipient = data[i][emailColIdx];
+      var recipient = RESOLVE_RECIPIENT(template.emailConfig, data[i], allHeaders, emailColIdx, i);
       if (!recipient || recipient.indexOf("@") === -1) continue;
 
       var subject = template.emailConfig.subject || "";
       var body = template.emailConfig.body || "";
 
-      for (var h = 0; h < allHeaders.length; h++) {
-        var header = allHeaders[h];
-        if (header) {
-          var rawVal = data[i][h];
-          var val;
-          if (rawVal instanceof Date) {
-            val = FORMAT_DATE_FOR_DISPLAY(rawVal);
-          } else if (typeof rawVal === 'number') {
-            val = displayData[i][h] || FORMAT_NUMBER_FOR_DISPLAY(rawVal);
-          } else {
-            val = String(rawVal || "");
+      var tagMappings = (template.config && template.config.tagMappings) || {};
+      if (Object.keys(tagMappings).length > 0) {
+        for (var docTag in tagMappings) {
+          if (tagMappings.hasOwnProperty(docTag)) {
+            var targetHeader = tagMappings[docTag];
+            var headerIdx = allHeaders.indexOf(targetHeader);
+            if (headerIdx !== -1) {
+              var rawVal = data[i][headerIdx];
+              var val;
+              if (rawVal instanceof Date) {
+                val = FORMAT_DATE_FOR_DISPLAY(rawVal);
+              } else if (typeof rawVal === 'number') {
+                val = displayData[i][headerIdx] || FORMAT_NUMBER_FOR_DISPLAY(rawVal);
+              } else {
+                val = String(rawVal || "");
+              }
+              var regex = new RegExp("\\{" + escapeRegex(docTag) + "\\}", "g");
+              subject = subject.replace(regex, val);
+              body = body.replace(regex, val);
+            }
           }
-          var regex = new RegExp("\\{" + escapeRegex(header) + "\\}", "g");
-          subject = subject.replace(regex, val);
-          body = body.replace(regex, val);
+        }
+      } else {
+        for (var h = 0; h < allHeaders.length; h++) {
+          var header = allHeaders[h];
+          if (header) {
+            var rawVal = data[i][h];
+            var val;
+            if (rawVal instanceof Date) {
+              val = FORMAT_DATE_FOR_DISPLAY(rawVal);
+            } else if (typeof rawVal === 'number') {
+              val = displayData[i][h] || FORMAT_NUMBER_FOR_DISPLAY(rawVal);
+            } else {
+              val = String(rawVal || "");
+            }
+            var regex = new RegExp("\\{" + escapeRegex(header) + "\\}", "g");
+            subject = subject.replace(regex, val);
+            body = body.replace(regex, val);
+          }
         }
       }
 
@@ -893,7 +958,9 @@ function RUN_TEMPLATE(templateId) {
       try {
         GmailApp.sendEmail(recipient, subject, "", mailOptions);
         var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-        sheet.getRange(rowNum, emailStatusColIdx + 1).setValue("Sent to " + recipient + " on " + timestamp + " (with PDF)");
+        var ccSuffix = template.emailConfig.cc ? " (CC: " + template.emailConfig.cc + ")" : "";
+        var bccSuffix = template.emailConfig.bcc ? " (BCC: " + template.emailConfig.bcc + ")" : "";
+        sheet.getRange(rowNum, emailStatusColIdx + 1).setValue("Sent to " + recipient + " on " + timestamp + " (with PDF)" + ccSuffix + bccSuffix);
         emailSentCount++;
         CHECK_DAILY_QUOTA_ALERT();
       } catch (e) {
@@ -1058,6 +1125,20 @@ function GET_RECORDS_PREVIEW_PAYLOAD_WITH_TEMPLATE(templateName) {
   };
 }
 
+function RUN_FILTERED_PREVIEW_DISPATCH(params) {
+  if (!params || !params.targetRows || !params.templateName) return "Missing parameters";
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var template = GET_TEMPLATE_BY_NAME(params.templateName);
+  if (!template) return "Template not found: " + params.templateName;
+
+  return executeEmailSend(params.targetRows, template.emailConfig, template.name, template.config.tagMappings, sheet);
+}
+
+function GET_PENDING_EMAIL_ATTACHMENTS() {
+  return [];
+}
+
 // ============================================================
 // 📋 CONDITIONAL PROCESSING FUNCTIONS - FIXED
 // ============================================================
@@ -1090,6 +1171,9 @@ function evaluateCondition(varValue, operator, targetValue) {
       case '>': return numCurrent > numCriteria;
       case '<': return numCurrent < numCriteria;
       case 'contains': return currentVal.toLowerCase().indexOf(criteriaVal.toLowerCase()) !== -1;
+      case 'notcontains': return currentVal.toLowerCase().indexOf(criteriaVal.toLowerCase()) === -1;
+      case 'startswith': return currentVal.toLowerCase().startsWith(criteriaVal.toLowerCase());
+      case 'endswith': return currentVal.toLowerCase().endsWith(criteriaVal.toLowerCase());
       default: return false;
     }
   }
@@ -1102,6 +1186,9 @@ function evaluateCondition(varValue, operator, targetValue) {
     case '>': return currentVal.toLowerCase() > criteriaVal.toLowerCase();
     case '<': return currentVal.toLowerCase() < criteriaVal.toLowerCase();
     case 'contains': return currentVal.toLowerCase().indexOf(criteriaVal.toLowerCase()) !== -1;
+    case 'notcontains': return currentVal.toLowerCase().indexOf(criteriaVal.toLowerCase()) === -1;
+    case 'startswith': return currentVal.toLowerCase().startsWith(criteriaVal.toLowerCase());
+    case 'endswith': return currentVal.toLowerCase().endsWith(criteriaVal.toLowerCase());
     default: return false;
   }
 }
@@ -1146,7 +1233,7 @@ function processConditionalBlocks(body, rowDataMap, displayDataMap) {
     }
     Logger.log("  Found " + blocks.length + " blocks");
 
-    var cRegex = /^\s*([^=!><]+?)\s*([=!><]=?|contains)\s*['"“]([^'"”']+)['"”']\s*$/i;
+    var cRegex = /^\s*([^=!><]+?)\s*([=!><]=?|contains|notcontains|startswith|endswith)\s*['"“]([^'"”']+)['"”']\s*$/i;
 
     for (var b = blocks.length - 1; b >= 0; b--) {
       var blk = blocks[b];
@@ -1265,7 +1352,7 @@ function processConditionalTableRows(body, rowDataMap, displayDataMap) {
     }
 
     var dispMap = displayDataMap || {};
-    var cRegex = /^\s*([^=!><]+?)\s*([=!><]=?|contains)\s*['"“]([^'"”']+)['"”']\s*$/i;
+    var cRegex = /^\s*([^=!><]+?)\s*([=!><]=?|contains|notcontains|startswith|endswith)\s*['"“]([^'"”']+)['"”']\s*$/i;
 
     for (var t = 0; t < tables.length; t++) {
       var table = tables[t];
@@ -1349,4 +1436,24 @@ function processConditionalTableRows(body, rowDataMap, displayDataMap) {
 function escapeRegexString(str) {
   if (!str) return '';
   return str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+/**
+ * Resolve recipient email from template config or fall back to column index
+ */
+function RESOLVE_RECIPIENT(emailConfig, rowData, allHeaders, fallbackColIdx) {
+  var toVal = (emailConfig && emailConfig.to) || "";
+  if (toVal) {
+    var toTagMatch = toVal.match(/^\{(.+)\}$/);
+    if (toTagMatch) {
+      var toColName = toTagMatch[1];
+      var toColIdx = allHeaders.indexOf(toColName);
+      if (toColIdx !== -1 && rowData[toColIdx]) {
+        return String(rowData[toColIdx]).trim();
+      }
+    } else {
+      return toVal;
+    }
+  }
+  return rowData[fallbackColIdx] ? String(rowData[fallbackColIdx]).trim() : "";
 }

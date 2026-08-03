@@ -263,9 +263,9 @@ function GENERATE_DOCUMAIL_TEMPLATE() {
 // ==========================================
 // Helper Functions
 // ==========================================
-function GET_ALL_RAW_HEADERS() {
+function GET_ALL_RAW_HEADERS(optSheet) {
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var sheet = optSheet || SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     var lastCol = sheet.getLastColumn();
     if (lastCol < 1) lastCol = 1;
     return sheet.getRange(1, 1, 1, lastCol).getValues()[0];
@@ -279,23 +279,24 @@ function GET_LIVE_SHEET_HEADERS() {
   try {
     var rawHeaders = GET_ALL_RAW_HEADERS();
     var result = [];
-    var foundRecipientEmail = false;
+    var foundMergedDocStatus = false;
     
     for (var i = 0; i < rawHeaders.length; i++) {
       var hStr = String(rawHeaders[i]).toLowerCase().trim();
       if (hStr === "") continue;
       
-      // Skip Recipient Email and everything after it
-      if (hStr.indexOf("recipient email") !== -1) {
-        foundRecipientEmail = true;
+      // Stop at Merged Doc Status (first real engine column)
+      if (hStr.indexOf("merged doc status") !== -1) {
+        foundMergedDocStatus = true;
         continue;
       }
-      if (foundRecipientEmail) {
-        continue; // Skip all columns after Recipient Email
+      if (foundMergedDocStatus) {
+        continue;
       }
       
-      // Skip Merged Doc columns (just in case)
-      if (hStr.indexOf("merged doc") !== -1) continue;
+      // Skip other engine columns that might appear before status
+      if (hStr.indexOf("merged doc id") !== -1) continue;
+      if (hStr.indexOf("merged doc url") !== -1) continue;
       // Skip Sent Mail Status columns
       if (hStr.indexOf("sent mail status") !== -1) continue;
       

@@ -10,8 +10,8 @@
 // BLOCK: HELPER - GET STORAGE KEY PER TAB
 // ==========================================
 
-function GET_TEMPLATES_KEY() {
-  var sheetName = SpreadsheetApp.getActiveSheet().getName();
+function GET_TEMPLATES_KEY(optSheetName) {
+  var sheetName = optSheetName || SpreadsheetApp.getActiveSheet().getName();
   return 'documail_templates_' + sheetName;
 }
 
@@ -24,9 +24,9 @@ function GET_REFRESH_KEY() {
 // BLOCK: TEMPLATE SYSTEM - CRUD OPERATIONS
 // ==========================================
 
-function GET_ALL_TEMPLATES() {
+function GET_ALL_TEMPLATES(optSheetName) {
   try {
-    var key = GET_TEMPLATES_KEY();
+    var key = GET_TEMPLATES_KEY(optSheetName);
     var templates = PropertiesService.getDocumentProperties().getProperty(key);
     return templates ? JSON.parse(templates) : [];
   } catch (e) {
@@ -190,7 +190,7 @@ function DELETE_TEMPLATE(templateId) {
   // =======================================================
   // IF DOC DATA EXISTS - BLOCK DELETION
   // =======================================================
-  if (hasDocData) {
+  if (hasDocData && targetTemplate.type !== "BOTH") {
     ui.alert(
       "❌ Cannot Delete Template",
       "This template has existing merged document records in the column:\n\n" +
@@ -255,6 +255,15 @@ function DELETE_TEMPLATE(templateId) {
   }
 
   // =======================================================
+  // REMOVE TIME-DRIVEN TRIGGER FOR THIS TEMPLATE
+  // =======================================================
+  try {
+    REMOVE_TEMPLATE_TRIGGER(templateId);
+  } catch (e) {
+    console.log("Could not remove trigger: " + e.message);
+  }
+
+  // =======================================================
   // REMOVE TEMPLATE FROM STORAGE (PER TAB)
   // =======================================================
   var filtered = [];
@@ -278,8 +287,8 @@ function DELETE_TEMPLATE(templateId) {
   return { success: true, message: "Template deleted successfully." };
 }
 
-function GET_TEMPLATE_BY_ID(templateId) {
-  var templates = GET_ALL_TEMPLATES();
+function GET_TEMPLATE_BY_ID(templateId, optSheetName) {
+  var templates = GET_ALL_TEMPLATES(optSheetName);
 
   // Debug: Log all template IDs
   var ids = [];
@@ -297,8 +306,8 @@ function GET_TEMPLATE_BY_ID(templateId) {
   return null;
 }
 
-function GET_TEMPLATE_BY_ID_FOR_EDIT(templateId) {
-  return GET_TEMPLATE_BY_ID(templateId);
+function GET_TEMPLATE_BY_ID_FOR_EDIT(templateId, optSheetName) {
+  return GET_TEMPLATE_BY_ID(templateId, optSheetName);
 }
 
 function SAVE_TEMPLATE_SCHEDULE(params) {
@@ -311,6 +320,13 @@ function SAVE_TEMPLATE_SCHEDULE(params) {
     }
   }
   PropertiesService.getDocumentProperties().setProperty(key, JSON.stringify(templates));
+
+  try {
+    MANAGE_TRIGGER_FOR_TEMPLATE(params.templateId);
+  } catch (e) {
+    console.log("Trigger management error: " + e.message);
+  }
+
   return "Schedule saved";
 }
 
@@ -322,14 +338,65 @@ function generateUUID() {
   });
 }
 
-function GET_TEMPLATE_BY_NAME(templateName) {
-  var templates = GET_ALL_TEMPLATES();
+function GET_TEMPLATE_BY_NAME(templateName, optSheetName) {
+  var templates = GET_ALL_TEMPLATES(optSheetName);
   for (var i = 0; i < templates.length; i++) {
     if (templates[i].name === templateName) {
       return templates[i];
     }
   }
   return null;
+}
+
+function DUPLICATE_TEMPLATE(templateId) {
+  var original = GET_TEMPLATE_BY_ID(templateId);
+  if (!original) throw new Error("Template not found");
+
+  var copy = JSON.parse(JSON.stringify(original));
+  copy.id = generateUUID();
+
+  // Generate unique name
+  var allTemplates = GET_ALL_TEMPLATES();
+  var existingNames = {};
+  for (var i = 0; i < allTemplates.length; i++) {
+    existingNames[allTemplates[i].name.toLowerCase().trim()] = true;
+  }
+
+  var baseName = original.name + " (Copy)";
+  var newName = baseName;
+  var counter = 2;
+  while (existingNames[newName.toLowerCase().trim()]) {
+    newName = original.name + " (Copy " + counter + ")";
+    counter++;
+  }
+  copy.name = newName;
+
+  // Copy the Google Doc template if exists
+  if (copy.config && copy.config.templateUrl) {
+    try {
+      var docId = copy.config.templateUrl.split("/d/")[1].split("/")[0];
+      var docFile = DriveApp.getFileById(docId);
+      var newDocFile = docFile.makeCopy("Copy of " + docFile.getName());
+      var newDocUrl = "https://docs.google.com/document/d/" + newDocFile.getId() + "/edit";
+      copy.config.templateUrl = newDocUrl;
+    } catch (e) {
+      console.log("Could not copy document template: " + e.message);
+    }
+  }
+
+  // Set schedule to MANUAL for the copy
+  copy.schedule = "MANUAL";
+
+  // Save the duplicated template
+  SAVE_TEMPLATE(copy);
+
+  // Trigger sidebar refresh
+  try {
+    var refreshKey = GET_REFRESH_KEY();
+    PropertiesService.getDocumentProperties().setProperty(refreshKey, "REFRESH_" + new Date().getTime());
+  } catch (err) {}
+
+  return { success: true, newId: copy.id, newName: copy.name };
 }
 
 function SAVE_TEMPLATE_WITH_SCHEDULE(templateData, schedule, templateId, sendEmail) {
@@ -351,6 +418,26 @@ function SAVE_TEMPLATE_WITH_SCHEDULE(templateData, schedule, templateId, sendEma
     }
   }
 
+  // Handle status column rename if template name changed
+  if (existingIndex !== -1) {
+    var oldName = templates[existingIndex].name;
+    if (oldName !== template.name) {
+      try {
+        var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+        var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+        var oldStatusColName = "Sent Mail Status - " + oldName;
+        for (var c = 0; c < headers.length; c++) {
+          if (String(headers[c]).toLowerCase().trim() === oldStatusColName.toLowerCase()) {
+            sheet.getRange(1, c + 1).setValue("Sent Mail Status - " + template.name);
+            break;
+          }
+        }
+      } catch (e) {
+        console.log("Could not rename status column: " + e.message);
+      }
+    }
+  }
+
   if (existingIndex !== -1) {
     templates[existingIndex] = template;
   } else {
@@ -365,6 +452,13 @@ function SAVE_TEMPLATE_WITH_SCHEDULE(templateData, schedule, templateId, sendEma
   // Save to properties
   var key = GET_TEMPLATES_KEY();
   PropertiesService.getDocumentProperties().setProperty(key, JSON.stringify(templates));
+
+  // Update time-driven trigger based on schedule
+  try {
+    MANAGE_TRIGGER_FOR_TEMPLATE(template.id);
+  } catch (e) {
+    console.log("Trigger management error: " + e.message);
+  }
 
   // Check/create status column
   var columnCreated = false;

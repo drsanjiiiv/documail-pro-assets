@@ -334,6 +334,7 @@
                 </div>
                 <div class="template-actions">
                   <button class="btn-icon" onclick="editTemplate('` + t.id + `')">✏️ Edit</button>
+                  <button class="btn-icon" onclick="duplicateTemplate('` + t.id + `')">📋 Copy</button>
                   <button class="btn-icon" onclick="previewTemplate('` + t.id + `')">👁️ Preview</button>
                   <button class="btn-icon btn-run" onclick="runTemplate('` + t.id + `')">▶️ Run</button>
                   <button class="btn-icon btn-delete" onclick="deleteTemplate('` + t.id + `', '` + safeName + `')">🗑️ Delete</button>
@@ -414,6 +415,24 @@
           alert("Error: " + error.message);
         })
         .OPEN_DOCUMENT_WIZARD_MODAL(id);
+    }
+
+    function duplicateTemplate(id) {
+      log("Duplicate template: " + id);
+      if (confirm("Create a copy of this template?")) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (result && result.success) {
+              log("Template duplicated as: " + result.newName);
+              loadTemplates();
+            }
+          })
+          .withFailureHandler(function(error) {
+            log("Error duplicating template: " + error.message);
+            alert("Error: " + error.message);
+          })
+          .DUPLICATE_TEMPLATE(id);
+      }
     }
 
     function previewTemplate(id) {
