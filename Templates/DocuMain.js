@@ -1,24 +1,8 @@
 /**
- * DocuMain.gs (Inside your Document Template Project)
+ * DocuMain.gs (Inside your Document Add-on)
  * Main Controller for the Document Template Designer.
+ * The add-on menu (onOpen / createMenu) lives in Code.js.
  */
-
-function onOpen() {
-  createMenu();
-}
-
-/**
- * Creates the custom menu in Google Docs
- */
-function createMenu() {
-  var ui = DocumentApp.getUi();
-  ui.createMenu('🚀 DocuMail Pro Template')
-    .addItem('📄 Initialize DocuMail Pro Template', 'INITIALIZE_DOC_DESIGNER_SIDEBAR')
-    .addItem('📝 Open Smart Variable Window', 'OPEN_SMART_VARIABLE_WINDOW')
-    .addSeparator()
-    .addItem('❓ Help', 'showHelp')
-    .addToUi();
-}
 
 /**
  * Shows help information to the user
@@ -71,9 +55,25 @@ function INITIALIZE_DOC_DESIGNER_SIDEBAR() {
     // 1. Get all text currently sitting on the canvas
     var currentText = body.getText().trim();
 
+    // 1b. One-time footer handoff: the Sheets add-on writes the linked source
+    // sheet ID into this document's footer. Capture it into document
+    // properties (fast, scope-safe) then clear the footer so it never
+    // re-triggers. Fallback reads remain in getSheetHeaders().
+    var sourceSheetId = null;
+    var footer = doc.getFooter();
+    if (footer) {
+      var fMatch = footer.getText().match(/DOCUMAIL_SOURCE_SHEET_ID=([\w-]+)/);
+      if (fMatch) sourceSheetId = fMatch[1];
+    }
+    if (sourceSheetId) {
+      PropertiesService.getDocumentProperties().setProperty('DOCUMAIL_SOURCE_SHEET_ID', sourceSheetId);
+      footer.setText("");
+    }
+
     // 2. Define our standard onboarding placeholder phrases
-    var line1 = "📄 DocuMail Pro Master Template Canvas";
-    var line2 = "Please use the menu item to start designing your automation layout:";
+    // (must match the text written by the Sheets add-on in WRITE_TEMPLATE_ONBOARDING)
+    var line1 = "📄 DocuMail Pro Template Canvas";
+    var line2 = "Extensions > DocuMail Pro Template > Start Dynamic Doc Template";
 
     // Check if the document contains content that isn't our onboarding text
     var hasCustomContent = false;

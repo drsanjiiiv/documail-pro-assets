@@ -684,6 +684,7 @@
     var activeLocalFilesCache = [];
     var existingTemplates = [];
     var pendingTagMappings = null;
+    var loadedTemplateUrl = "";
     var lastFocusedTagTargetId = "emailBodyCanvas";
     var savedBodyRangeSelection = null;
     var isFinishing = false;
@@ -830,12 +831,26 @@
       if (file && file.size <= 5 * 1024 * 1024) {
         var reader = new FileReader();
         reader.onload = function (e) {
+          var folderInput = document.getElementById('targetFolderInput');
+          var folderUrl = folderInput ? folderInput.value : '';
+          var folderId = '';
+          if (folderUrl) {
+            if (folderUrl.indexOf('/folders/') > -1) {
+              folderId = folderUrl.split('/folders/')[1];
+            } else if (folderUrl.indexOf('id=') > -1) {
+              folderId = folderUrl.split('id=')[1];
+            } else {
+              folderId = folderUrl;
+            }
+          }
           google.script.run.withSuccessHandler(function (res) {
             if (res.success) {
               activeLocalFilesCache.push({ id: res.id, name: res.name });
               renderAttachments();
+            } else if (res.error) {
+              alert("Upload failed: " + res.error);
             }
-          }).UPLOAD_LOCAL_FILE_STREAM({ name: file.name, mimeType: file.type, data: e.target.result });
+          }).UPLOAD_LOCAL_FILE_STREAM({ name: file.name, mimeType: file.type, data: e.target.result }, folderId);
         };
         reader.readAsDataURL(file);
       } else alert("File too large (max 5MB)");
@@ -1062,6 +1077,9 @@
        ========================================== -->
   <script>
 
+    var autoSaveInFlight = false;
+    var pendingAutoSaveData = null;
+
     function autoSaveCurrentStep() {
       var step = currentStepIndex;
 
@@ -1071,22 +1089,35 @@
       }
 
       var templateData = collectTemplateData();
-      var templateId = editingTemplateId || null;  // ← Use existing ID if available
 
       // Don't save if no template name
       if (!templateData.name || templateData.name.trim() === "") {
         return;
       }
 
-      // =======================================================
-      // PASS sendEmail: false for auto-save
-      // =======================================================
+      // Serialize saves: capture the latest full state; if a save is in flight,
+      // queue it so the final captured state always lands last, in order.
+      pendingAutoSaveData = { step: step, templateData: templateData };
+      if (autoSaveInFlight) {
+        return;
+      }
+      flushAutoSave();
+    }
 
-      // =======================================================
-      // FIX: Use the existing template ID to UPDATE, not CREATE
-      // =======================================================
+    function flushAutoSave() {
+      if (!pendingAutoSaveData || autoSaveInFlight) return;
+      var queued = pendingAutoSaveData;
+      pendingAutoSaveData = null;
+      autoSaveInFlight = true;
+
+      var templateData = queued.templateData;
+      var step = queued.step;
+      var templateId = editingTemplateId || null;
+
       google.script.run
         .withSuccessHandler(function (saved) {
+          autoSaveInFlight = false;
+
           if (saved && saved.template && saved.template.id) {
             editingTemplateId = saved.template.id;  // ← Capture ID after first save
             isEditMode = true;
@@ -1102,9 +1133,21 @@
 
             console.log("✅ Auto-saved Step " + step + " (ID: " + editingTemplateId + ")");
           }
+
+          var stepNum = getDisplayStepNumber(step);
+          showToast("✅ Step " + stepNum + " saved");
+          if (pendingAutoSaveData) {
+            flushAutoSave();
+          }
         })
         .withFailureHandler(function (err) {
+          autoSaveInFlight = false;
           console.log("⚠️ Auto-save failed for Step " + step + ": " + err.message);
+          var stepNum = getDisplayStepNumber(step);
+          showToast("⚠️ Step " + stepNum + " could not be saved: " + err.message);
+          if (pendingAutoSaveData) {
+            flushAutoSave();
+          }
         })
         .SAVE_TEMPLATE_WITH_SCHEDULE(templateData, document.querySelector('input[name="schedule"]:checked')?.value || "MANUAL", templateId);  // ← Pass templateId
     }
@@ -1154,11 +1197,6 @@
 
     function goToStep(step) {
 
-      // Show a subtle indicator that data was saved
-      if (step > 1) {
-        showToast("✅ Step " + (step - 1) + " saved");
-      }
-
       if (step < 1 || step > totalStepsCount) return;
       var currentPanel = document.getElementById("panelStep" + currentStepIndex);
       if (currentPanel) currentPanel.classList.remove("active");
@@ -1184,7 +1222,7 @@
       // ✅ FIXED NAV GUARD FOR STEP 3 (MAP TAGS)
       // =======================================================
       if (step === 3 && document.getElementById('docTemplateUrl').value) {
-        if (isEditMode && pendingTagMappings && Object.keys(pendingTagMappings).length > 0) {
+        if (isEditMode && pendingTagMappings && Object.keys(pendingTagMappings).length > 0 && document.getElementById('docTemplateUrl').value === loadedTemplateUrl) {
           debug("Nav Guard: Valid mappings found in edit mode. Rendering table directly from local memory.");
           
           var savedTags = Object.keys(pendingTagMappings);
@@ -1324,6 +1362,20 @@
           alert("⚠️ Please map all tags to spreadsheet columns before proceeding.");
           return false;
         }
+      }
+
+      if (targetStep === 5 && (selectedType === "PDF_ONLY" || selectedType === "BOTH")) {
+        var fnInput = document.getElementById('fileNamePattern');
+        if (fnInput && !fnInput.value.trim()) {
+          var fnErr = document.getElementById('fileNameError');
+          if (fnErr) {
+            fnErr.style.display = 'block';
+            fnErr.innerText = "❌ Please enter a filename pattern";
+          }
+          return false;
+        }
+        var fnErrClean = document.getElementById('fileNameError');
+        if (fnErrClean) fnErrClean.style.display = 'none';
       }
 
       if (targetStep === 6 && (selectedType === "PDF_ONLY" || selectedType === "BOTH")) {
@@ -1593,16 +1645,21 @@
       if (!pickerApiLoaded || !oAuthTokenSecureStr) { alert("Please wait, loading Drive components..."); return; }
       if (mode === 'DOCS') {
         var view = new google.picker.DocsView(google.picker.ViewId.DOCUMENTS).setMimeTypes("application/vnd.google-apps.document").setOwnedByMe(true);
-        new google.picker.PickerBuilder().addView(view).setOAuthToken(oAuthTokenSecureStr).setOrigin(google.script.host.origin).setSize(800, 600).setTitle("Select Document Template").setCallback(function (data) {
+        new google.picker.PickerBuilder().addView(view).setAppId("337774023280").setDeveloperKey("AIzaSyCMHFpUHIVCgd8nviO88SdNWw1YWOtLqIs").setOAuthToken(oAuthTokenSecureStr).setOrigin(google.script.host.origin).setSize(800, 600).setTitle("Select Document Template").setCallback(function (data) {
           if (data.action === google.picker.Action.PICKED) {
             var doc = data.docs[0];
             document.getElementById('docTemplateUrl').value = doc.url;
             document.getElementById('fileSelectionMetaDisplay').innerHTML = "✅ Selected: " + doc.name;
+            loadedTemplateUrl = doc.url;
+            pendingTagMappings = {};
+            tagsDetected = false;
+            var tbody = document.getElementById('tagMappingBody');
+            if (tbody) tbody.innerHTML = '<tr><td colspan="2" style="text-align:center;">Select a template, then continue to map tags.</td></tr>';
           }
         }).build().setVisible(true);
       } else {
         var view = new google.picker.DocsView(google.picker.ViewId.FOLDERS).setIncludeFolders(true).setSelectFolderEnabled(true).setOwnedByMe(true);
-        new google.picker.PickerBuilder().addView(view).setOAuthToken(oAuthTokenSecureStr).setOrigin(google.script.host.origin).setSize(800, 600).setTitle("Select Destination Folder").setCallback(function (data) {
+        new google.picker.PickerBuilder().addView(view).setAppId("337774023280").setDeveloperKey("AIzaSyCMHFpUHIVCgd8nviO88SdNWw1YWOtLqIs").setOAuthToken(oAuthTokenSecureStr).setOrigin(google.script.host.origin).setSize(800, 600).setTitle("Select Destination Folder").setCallback(function (data) {
           if (data.action === google.picker.Action.PICKED) {
             var folder = data.docs[0];
             document.getElementById('targetFolderInput').value = folder.url;
@@ -1617,8 +1674,8 @@
   var tbody = document.getElementById('tagMappingBody');
   if (!tbody) return;
   
-  // ✅ CHECK FOR SAVED MAPPINGS FIRST - SKIP RE-ANALYSIS
-  if (isEditMode && pendingTagMappings && Object.keys(pendingTagMappings).length > 0) {
+  // ✅ CHECK FOR SAVED MAPPINGS FIRST - SKIP RE-ANALYSIS (only if doc unchanged)
+  if (isEditMode && pendingTagMappings && Object.keys(pendingTagMappings).length > 0 && document.getElementById('docTemplateUrl').value === loadedTemplateUrl) {
     debug("✅ Using saved mappings, skipping re-analysis");
     
     // Just re-render the table with saved data
@@ -1909,9 +1966,10 @@
 
   selectTemplateType(existing.type || 'PDF_ONLY');
 
-  if (existing.config) {
+    if (existing.config) {
     if (existing.config.templateUrl) {
       document.getElementById('docTemplateUrl').value = existing.config.templateUrl;
+      loadedTemplateUrl = existing.config.templateUrl;
       document.getElementById('fileSelectionMetaDisplay').innerHTML = "✅ Template loaded";
     }
     if (existing.config.format) {

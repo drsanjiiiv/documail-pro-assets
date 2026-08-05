@@ -110,7 +110,6 @@ function executeEmailSend(selectedRows, emailConfig, templateName, tagMappings, 
       var bccSuffix = emailConfig.bcc ? " (BCC: " + emailConfig.bcc + ")" : "";
       sheet.getRange(rowNum, statusColIdx + 1).setValue("Sent to " + recipient + " on " + timestamp + ccSuffix + bccSuffix);
       sent++;
-      CHECK_DAILY_QUOTA_ALERT();
     } catch (e) {
       errors.push("Row " + rowNum + ": " + e.message);
       sheet.getRange(rowNum, statusColIdx + 1).setValue("Failed: " + e.message);
@@ -123,128 +122,6 @@ function executeEmailSend(selectedRows, emailConfig, templateName, tagMappings, 
   return "✅ Successfully sent " + sent + " emails!";
 }
 
-function executeEmailSendWithAttachments(emailConfig, folderId, templateName, tagMappings) { // 👈 ADDED tagMappings
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    var allHeaders = GET_ALL_RAW_HEADERS();
-    var emailColIdx = -1;
-
-    for (var c = 0; c < allHeaders.length; c++) {
-        var hName = String(allHeaders[c]).toLowerCase().trim();
-        if (hName.indexOf("recipient email") !== -1) emailColIdx = c;
-    }
-    if (emailColIdx === -1) emailColIdx = 4;
-
-    var statusColIdx = GET_OR_CREATE_STATUS_COLUMN(sheet, templateName);
-    var mappings = tagMappings || {};
-
-    var pdfFiles = [];
-    if (folderId) {
-        var folder = DriveApp.getFolderById(folderId);
-        var files = folder.getFiles();
-        var currentTime = new Date().getTime();
-        while (files.hasNext()) {
-            var file = files.next();
-            var fileCreated = file.getDateCreated().getTime();
-            if (file.getMimeType() === 'application/pdf' && fileCreated > currentTime - 120000) {
-                pdfFiles.push(file);
-            }
-        }
-    }
-
-    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, allHeaders.length).getValues();
-    var displayData = sheet.getRange(2, 1, sheet.getLastRow() - 1, allHeaders.length).getDisplayValues();
-    var sent = 0;
-    var errors = [];
-
-    for (var i = 0; i < data.length; i++) {
-        var rowNum = i + 2;
-        var existingStatus = String(data[i][statusColIdx] || "").trim();
-        if (existingStatus !== "") continue;
-
-        var recipient = RESOLVE_RECIPIENT(emailConfig, data[i], allHeaders, emailColIdx);
-        if (!recipient || recipient.indexOf("@") === -1) continue;
-
-        var subject = emailConfig.subject || "";
-        var body = emailConfig.body || "";
-
-        // =======================================================
-        // ✅ FIX: ITERATE OVER THE DICTIONARY MAPPINGS LIVE WITH PDF
-        // =======================================================
-        if (Object.keys(mappings).length > 0) {
-          for (var docTag in mappings) {
-            if (mappings.hasOwnProperty(docTag)) {
-              var targetHeader = mappings[docTag];
-              var headerIdx = allHeaders.indexOf(targetHeader);
-              
-              if (headerIdx !== -1) {
-                var rawVal = data[i][headerIdx];
-                var val;
-                if (rawVal instanceof Date) {
-                  val = FORMAT_DATE_FOR_DISPLAY(rawVal);
-                } else if (typeof rawVal === 'number') {
-                  val = displayData[i][headerIdx] || FORMAT_NUMBER_FOR_DISPLAY(rawVal);
-                } else {
-                  val = String(rawVal || "");
-                }
-                var regex = new RegExp("\\{" + escapeRegex(docTag) + "\\}", "g");
-                subject = subject.replace(regex, val);
-                body = body.replace(regex, val);
-              }
-            }
-          }
-        } else {
-          for (var h = 0; h < allHeaders.length; h++) {
-              var header = allHeaders[h];
-              if (header) {
-                  var rawVal = data[i][h];
-                  var val;
-                  if (rawVal instanceof Date) {
-                      val = FORMAT_DATE_FOR_DISPLAY(rawVal);
-                  } else if (typeof rawVal === 'number') {
-                      val = displayData[i][h] || FORMAT_NUMBER_FOR_DISPLAY(rawVal);
-                  } else {
-                      val = String(rawVal || "");
-                  }
-                  var regex = new RegExp("\\{" + escapeRegex(header) + "\\}", "g");
-                  subject = subject.replace(regex, val);
-                  body = body.replace(regex, val);
-              }
-          }
-        }
-
-        var mailOptions = { htmlBody: body };
-        if (emailConfig.replyTo) mailOptions.replyTo = emailConfig.replyTo;
-        if (emailConfig.cc) mailOptions.cc = emailConfig.cc;
-        if (emailConfig.bcc) mailOptions.bcc = emailConfig.bcc;
-
-        var attachments = [];
-        for (var p = 0; p < pdfFiles.length; p++) {
-            attachments.push(pdfFiles[p].getBlob());
-        }
-        if (attachments.length > 0) {
-            mailOptions.attachments = attachments;
-        }
-
-        try {
-            GmailApp.sendEmail(recipient, subject, "", mailOptions);
-            var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-            var ccSuffix = emailConfig.cc ? " (CC: " + emailConfig.cc + ")" : "";
-            var bccSuffix = emailConfig.bcc ? " (BCC: " + emailConfig.bcc + ")" : "";
-            sheet.getRange(rowNum, statusColIdx + 1).setValue("Sent to " + recipient + " on " + timestamp + " (with PDF)" + ccSuffix + bccSuffix);
-            sent++;
-            CHECK_DAILY_QUOTA_ALERT();
-        } catch (e) {
-            errors.push("Row " + rowNum + ": " + e.message);
-            sheet.getRange(rowNum, statusColIdx + 1).setValue("Failed: " + e.message);
-        }
-    }
-
-    if (errors.length > 0) {
-        return "✅ Sent " + sent + " emails (with PDF attachments).\n⚠️ Errors: " + errors.join(", ");
-    }
-    return "✅ Successfully sent " + sent + " emails (with PDF attachments)!";
-}
-
 // =======================================================
 // ✅ FIX: PASS REFRESHED PARAM MAPPINGS VIA CONTROLLER
 // =======================================================
@@ -255,24 +132,6 @@ function EXECUTE_TEMPLATE_ACTION(params) {
         return executeEmailSend(params.selectedRows, params.emailConfig, params.templateName, mappings);
     }
     return "PDF generation coming soon";
-}
-
-function CHECK_DAILY_QUOTA_ALERT() {
-    try {
-        if (MailApp.getRemainingDailyQuota() === 10) {
-            var senderInbox = Session.getActiveUser().getEmail();
-            if (senderInbox) {
-                MailApp.sendEmail(
-                    senderInbox,
-                    "⚠️ Alert: Your Daily DocuMail Pro Email Quota is Running Low!",
-                    "Hello,\n\nYou have already sent your standard volume for the day. There are only 10 emails pending/remaining for today before Google limits your execution thread.\n\nPlease plan your remaining bulk campaigns accordingly.\n\nRegards,\nDocuMail Pro Safety Monitor Engine"
-                );
-                console.log("🚨 Quota warning email dispatched successfully to: " + senderInbox);
-            }
-        }
-    } catch (qe) {
-        console.log("Quota threshold check skipped safely: " + qe.message);
-    }
 }
 
 function CHECK_SIDEBAR_REFRESH() {

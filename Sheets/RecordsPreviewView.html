@@ -319,9 +319,9 @@
             emailTemplate = previewBundle.emailTemplate;
             sheetHeaders = previewBundle.sheetHeaders || [];
             
-            document.getElementById("quotaCounterField").innerText = "Remaining Gmail Allocations Today: " + dailyQuota;
-            document.getElementById("quotaDisplay").innerText = dailyQuota + " emails left";
-            document.getElementById("quotaScreen2Display").innerText = dailyQuota;
+            document.getElementById("quotaCounterField").innerText = "📊 Email Quota: Check your automated email quota — 100 emails/day for a normal Google account, 1500/day for Google Workspace.";
+            document.getElementById("quotaDisplay").innerText = "Check your automated email quota — 100 emails/day (normal) / 1500/day (Workspace)";
+            document.getElementById("quotaScreen2Display").innerText = "100 / 1500 emails per day (check your plan limit)";
             
             renderRecordsTable();
           })

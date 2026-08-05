@@ -8,47 +8,31 @@
  */
 
 // ==========================================
-// MASTER TEMPLATE CONFIGURATION
+// TEMPLATE CREATION CONFIGURATION
 // ==========================================
-// Before publishing, set this to your "DocuMailPro Master Doc Template" file ID.
-// Share the doc with "Anyone with the link can view" so add-on users can access it.
-var MASTER_TEMPLATE_FILE_ID = '1RzrM1_w8M_MmtzKpKjeCoglnjHScEOFnZJHRHrBTuZE';
-
-function GET_MASTER_TEMPLATE_ID() {
-  var props = PropertiesService.getDocumentProperties();
-
-  // 1. Check PropertiesService first (user-set via menu or auto-detected)
-  var stored = props.getProperty('DOCUMAIL_MASTER_TEMPLATE_ID');
-  if (stored) return stored;
-
-  // 2. Check hardcoded constant (developer sets before publishing)
-  if (MASTER_TEMPLATE_FILE_ID) return MASTER_TEMPLATE_FILE_ID;
-
-  // 3. Fallback: search by name (backward compatible)
-  var files = DriveApp.getFilesByName("DocuMailPro Master Doc Template");
-  if (files.hasNext()) {
-    var file = files.next();
-    props.setProperty('DOCUMAIL_MASTER_TEMPLATE_ID', file.getId());
-    return file.getId();
-  }
-
-  return null;
-}
+// Dynamic template documents are created fresh (app-owned) per sheet via
+// DocumentApp.create(). The linked spreadsheet ID is written into each
+// document's footer (DOCUMAIL_SOURCE_SHEET_ID=...) so the Docs add-on can read
+// the sheet headers as variables without any Drive API access. No master
+// template, no bound scripts, no script binding steps are involved.
 
 // ==========================================
 // SPREADSHEET PLATFORM - ONOPEN (CLEAN)
 // ==========================================
-function onOpen() {
+function onOpen(e) {
   var ui = SpreadsheetApp.getUi();
   
-  ui.createMenu('🚀 DocuMail Pro Sheet')
+  ui.createAddonMenu()
     .addItem('📄 Initialize DocuMail Pro Sheet Structure', 'GENERATE_DOCUMAIL_TEMPLATE')
     .addItem('📝 Create Dynamic Doc Template From Sheet', 'CREATE_DOCUMENT_TEMPLATE_MENU')
     .addItem('🧠 Open Smart Template Engine', 'INITIALIZE_ADDON_SIDEBAR')
     .addSeparator()
-    .addItem('⚙️ Set Master Template', 'SET_MASTER_TEMPLATE')
     .addItem('❓ Help', 'showSheetHelp')
     .addToUi();
+}
+
+function onInstall(e) {
+  onOpen(e);
 }
 
 // ==========================================
@@ -96,8 +80,8 @@ function INITIALIZE_ADDON_SIDEBAR() {
   // =======================================================
   if (!hasSystemColumns) {
     var response = ui.alert(
-      "⚠️ DocuMail PRO Not Initialized",
-      "DocuMail PRO system columns don't exist in this sheet.\n\n" +
+      "⚠️ DocuMail Pro Not Initialized",
+      "DocuMail Pro system columns don't exist in this sheet.\n\n" +
       "Please initialize the sheet structure first to continue.\n\n" +
       "Do you want to initialize it now?",
       ui.ButtonSet.YES_NO
@@ -138,7 +122,7 @@ function showSheetHelp() {
     '─────────────────────────────\n\n' +
     '📝 Create Dynamic Doc Template From Sheet\n' +
     'Creates a new Google Doc template linked to your current sheet:\n' +
-    '• Copies the master template with all scripts\n' +
+    '• Creates a fresh template document in your Drive\n' +
     '• Automatically links it to this sheet\n' +
     '• Opens the template for you to design\n' +
     '• Variables from your sheet headers can be inserted\n\n' +
@@ -264,7 +248,7 @@ function CREATE_DOCUMENT_TEMPLATE_MENU() {
     
     <div class="step pending" id="step4">
       <span class="icon">⏳</span>
-      <span class="text">📄 Copying master template structure...</span>
+      <span class="text">📄 Creating your dynamic template document...</span>
     </div>
     
     <div class="step pending" id="step5">
@@ -380,51 +364,19 @@ function CREATE_DOCUMENT_TEMPLATE_MENU() {
 // ==========================================
 function CREATE_TEMPLATE_IN_BACKGROUND(sheetName, sheetId) {
   try {
-    var ss = SpreadsheetApp.openById(sheetId);
-    
-    // 1. Resolve Parent Directory Framework (Get Grandparent Folder)
-    var ssFile = DriveApp.getFileById(ss.getId());
-    var parentFolders = ssFile.getParents();
-    var currentFolder = parentFolders.hasNext() ? parentFolders.next() : DriveApp.getRootFolder();
+    // 1. Create the template document directly in the root of My Drive
+    // (no folder - users move it to their preferred location for organization)
+    var docFile = Drive.Files.create({
+      name: "DocTemplate for " + sheetName,
+      mimeType: 'application/vnd.google-apps.document'
+    });
+    var docId = docFile.id;
 
-    // Move one level above current sheet's folder
-    var grandParentFolders = currentFolder.getParents();
-    var targetParentFolder = grandParentFolders.hasNext() ? grandParentFolders.next() : DriveApp.getRootFolder();
-
-    var folderName = "DocuMail PRO Templates";
-    var templateFolder = null;
-    var existingFolders = targetParentFolder.getFoldersByName(folderName);
-
-    if (existingFolders.hasNext()) {
-      templateFolder = existingFolders.next();
-    } else {
-      templateFolder = targetParentFolder.createFolder(folderName);
-    }
-
-    // 2. Locate the Master Template Document with the Scripts
-    var masterId = GET_MASTER_TEMPLATE_ID();
-    if (!masterId) {
-      throw new Error("Master template not found. Go to DocuMail Pro Sheet → ⚙️ Set Master Template to configure it.");
-    }
-    var masterFile = DriveApp.getFileById(masterId);
-
-    // 3. Clone the Master File
-    var docFile = masterFile.makeCopy("DocTemplate for " + sheetName, templateFolder);
-    var docId = docFile.getId();
-    
-    // SECURE STORAGE: Write the Source Sheet ID directly into the file's description metadata
-    docFile.setDescription(ss.getId());
-
-    // 4. Set Onboarding Text On Canvas
+    // 2. Open it with the Document service to write canvas + footer
     var doc = DocumentApp.openById(docId);
-    var body = doc.getBody();
-    body.clear();
-    
-    var titleParagraph = body.appendParagraph("📄 DocuMail Pro Master Template Canvas");
-    titleParagraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-    
-    var descParagraph = body.appendParagraph("\n👉 Go to: DocuMail Pro > Initialize DocuMail PRO Template\n\nThis will clear the canvas and link sheet headers and a DocuMail PRO Template Engine will open on side, all the headers will be available as Variables.\n\nYou are free to insert any variable, any number of times. You can also use Variables with conditions, like when a variable shall be visible.\n\nMake sure to choose Paragraph Text for Paragraph & Table Row for Table, if using conditional insert");
-    descParagraph.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+
+    // 3. Write onboarding text + the sheet link into the footer
+    WRITE_TEMPLATE_ONBOARDING(doc, sheetId);
 
     doc.saveAndClose();
     var docUrl = doc.getUrl();
@@ -437,42 +389,27 @@ function CREATE_TEMPLATE_IN_BACKGROUND(sheetName, sheetId) {
 }
 
 // ==========================================
-// FUNCTION: SET_MASTER_TEMPLATE — One-time setup for the master template file
+// FUNCTION: WRITE_TEMPLATE_ONBOARDING
+// Writes the designer onboarding text on the canvas and the linked source
+// sheet ID into the document footer. The Docs add-on reads the footer to
+// expose the sheet's headers as variables (no Drive API involved).
 // ==========================================
-function SET_MASTER_TEMPLATE() {
-  var ui = SpreadsheetApp.getUi();
-  var result = ui.prompt(
-    '⚙️ Set Master Template',
-    'Enter the file ID of your "DocuMailPro Master Doc Template":\n\n' +
-    'Tip: The file ID is the long string in the URL after /d/ and before /edit\n\n' +
-    'Leave empty and press OK to auto-detect by name.',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (result.getSelectedButton() !== ui.Button.OK) return;
+function WRITE_TEMPLATE_ONBOARDING(doc, sheetId) {
+  var body = doc.getBody();
+  body.clear();
 
-  var input = result.getResponseText().trim();
-  var props = PropertiesService.getDocumentProperties();
+  var titleParagraph = body.appendParagraph("📄 DocuMail Pro Template Canvas");
+  titleParagraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
 
-  if (input) {
-    // Verify the ID is valid
-    try {
-      var file = DriveApp.getFileById(input);
-      props.setProperty('DOCUMAIL_MASTER_TEMPLATE_ID', input);
-      ui.alert('✅ Master template set successfully!\n\nFile: ' + file.getName());
-    } catch (e) {
-      ui.alert('❌ Invalid file ID. Please check and try again.\n\nError: ' + e.message);
-    }
-  } else {
-    // Auto-detect by name
-    var files = DriveApp.getFilesByName("DocuMailPro Master Doc Template");
-    if (files.hasNext()) {
-      var file = files.next();
-      props.setProperty('DOCUMAIL_MASTER_TEMPLATE_ID', file.getId());
-      ui.alert('✅ Auto-detected and set!\n\nFile: ' + file.getName());
-    } else {
-      ui.alert('❌ No file named "DocuMailPro Master Doc Template" found in your Drive.');
-    }
-  }
+  var descParagraph = body.appendParagraph("\n👉 Go to: Extensions > DocuMail Pro Template > Start Dynamic Doc Template\n\nThis will clear the canvas and link sheet headers, and a DocuMail Pro Template Engine will open on the side, with all the headers available as Variables.\n\nYou are free to insert any variable, any number of times. You can also use Variables with conditions, like when a variable shall be visible.\n\nMake sure to choose Paragraph Text for Paragraph & Table Row for Table, if using conditional insert");
+  descParagraph.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+
+  body.appendParagraph("📁 Your template «" + doc.getName() + "» (auto-named from your sheet) is saved in the root of your My Drive. For better organization, right-click it in Drive, select Move to, and pick your preferred folder before generating documents.\n\n" +
+    "Generated documents and email attachments are saved to the destination folder you choose in Step 6 of the template wizard (a destination folder is required). No folders are auto-created in your Drive.")
+    .setHeading(DocumentApp.ParagraphHeading.NORMAL);
+
+  var footer = doc.getFooter() || doc.addFooter();
+  footer.setText('DOCUMAIL_SOURCE_SHEET_ID=' + sheetId);
 }
 
 // ==========================================
@@ -896,8 +833,8 @@ function SHOW_RUN_DIALOG(templateId) {
 `;
 
   var loadingDialog = HtmlService.createHtmlOutput(loadingHtml)
-    .setWidth(550)
-    .setHeight(450)
+    .setWidth(720)
+    .setHeight(600)
     .setTitle('Running Template...');
   SpreadsheetApp.getUi().showModalDialog(loadingDialog, 'Running Template...');
 }
@@ -910,12 +847,15 @@ function GENERATE_PREVIEW_IN_BACKGROUND(templateId) {
   try {
     var previewFileUrl = '';
     var previewFileDisplayName = '';
+    var previewError = '';
 
     // First, process the preview (generate the document)
     var template = GET_TEMPLATE_BY_ID(templateId);
     if (template && (template.type === "PDF_ONLY" || template.type === "BOTH")) {
       var config = JSON.parse(JSON.stringify(template.config));
       config.isPreview = true;
+
+      REFRESH_TAG_MAPPINGS_IF_DOC_CHANGED(config);
 
       if (!config.tagMappings || Object.keys(config.tagMappings).length === 0) {
         var allHeaders = GET_ALL_RAW_HEADERS();
@@ -929,51 +869,22 @@ function GENERATE_PREVIEW_IN_BACKGROUND(templateId) {
       }
 
       var mergeResult = EXECUTE_DOCUMENT_MERGE_ENGINE(config);
-      if (mergeResult && typeof mergeResult === 'object' && mergeResult.fileUrl) {
-        previewFileUrl = mergeResult.fileUrl;
-        previewFileDisplayName = mergeResult.fileDisplayName || '';
-      }
-
-      // Fallback: search for the generated file directly if merge didn't return URL
-      if (!previewFileUrl) {
-        try {
-          var searchFolder = null;
-          var folderDest = template.config?.folderDestination;
-          if (folderDest) {
-            var folderId = null;
-            if (folderDest.indexOf("/folders/") > -1) {
-              folderId = folderDest.split("/folders/")[1];
-            } else if (folderDest.indexOf("id=") > -1) {
-              folderId = folderDest.split("id=")[1];
-            } else {
-              folderId = folderDest;
-            }
-            if (folderId) searchFolder = DriveApp.getFolderById(folderId);
-          }
-          var searchFiles = searchFolder ? searchFolder.getFiles() : DriveApp.getFiles();
-          var currentTime = new Date().getTime();
-          var latestFile = null;
-          var latestTime = 0;
-          while (searchFiles.hasNext()) {
-            var file = searchFiles.next();
-            var fileCreated = file.getDateCreated().getTime();
-            if (fileCreated > currentTime - 120000 && file.getName().indexOf("PROV-") !== -1) {
-              if (fileCreated > latestTime) {
-                latestTime = fileCreated;
-                latestFile = file;
-              }
-            }
-          }
-          if (latestFile) {
-            previewFileUrl = latestFile.getUrl();
-            previewFileDisplayName = latestFile.getName();
-          }
-        } catch (e) {}
+      if (mergeResult && typeof mergeResult === 'object') {
+        if (mergeResult.fileUrl) {
+          previewFileUrl = mergeResult.fileUrl;
+          previewFileDisplayName = mergeResult.fileDisplayName || '';
+        } else if (mergeResult.error) {
+          previewError = String(mergeResult.error);
+        }
+      } else if (typeof mergeResult === 'string') {
+        if (mergeResult.indexOf("Error") === 0 || mergeResult.indexOf("No destination folder") === 0) {
+          previewError = mergeResult;
+        }
       }
     }
     
     // Then get the preview HTML
-    var result = PREVIEW_TEMPLATE(templateId, previewFileUrl, previewFileDisplayName);
+    var result = PREVIEW_TEMPLATE(templateId, previewFileUrl, previewFileDisplayName, previewError);
     return result;
     
   } catch (e) {
@@ -1009,7 +920,9 @@ function RUN_TEMPLATE_IN_BACKGROUND(templateId) {
       if (!config.tagMappings) {
         config.tagMappings = {};
       }
-      
+
+      REFRESH_TAG_MAPPINGS_IF_DOC_CHANGED(config);
+
       if (Object.keys(config.tagMappings).length === 0) {
         var allHeaders = GET_ALL_RAW_HEADERS();
         var tags = EXTRACT_TEMPLATE_TAGS_STREAM(config.templateUrl);
@@ -1025,44 +938,65 @@ function RUN_TEMPLATE_IN_BACKGROUND(templateId) {
       }
     }
     
-    var result = RUN_TEMPLATE(templateId);
-    
-    // Get file URLs from the folder
-var fileUrls = [];
-if ((template.type === "PDF_ONLY" || template.type === "BOTH") && result !== "NO_ROWS_ELIGIBLE" && result && result.indexOf("Error") === -1) {
-  var folderId = template.config?.folderDestination;
-  if (folderId) {
-    var folderIdExtracted = folderId.split("/folders/")[1] || folderId.split("id=")[1];
-    if (folderIdExtracted) {
+    // Capture rows already "Success" BEFORE the run so reused files are not listed as newly generated
+    var reusedRowSet = {};
+    if (template.type === "PDF_ONLY" || template.type === "BOTH") {
       try {
-        var folder = DriveApp.getFolderById(folderIdExtracted);
-        var files = folder.getFiles();
-        var latestFiles = [];
-        var currentTime = new Date().getTime();
-        
-        while (files.hasNext()) {
-          var file = files.next();
-          var fileCreated = file.getDateCreated().getTime();
-          var fileName = file.getName();
-          
-          // EXCLUDE preview files (PROV- prefix) and only get files created in last 2 minutes
-          if (fileCreated > currentTime - 120000 && fileName.indexOf("PROV-") === -1) {
-            latestFiles.push(file);
+        var preSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+        var preHeaders = GET_ALL_RAW_HEADERS(preSheet);
+        var preStatusColIdx = -1;
+        for (var c = 0; c < preHeaders.length; c++) {
+          if (String(preHeaders[c]).toLowerCase().indexOf("merged doc status") !== -1) {
+            preStatusColIdx = c;
+            break;
           }
         }
-        latestFiles.sort(function (a, b) {
-          return b.getDateCreated().getTime() - a.getDateCreated().getTime();
-        });
-        for (var i = 0; i < latestFiles.length; i++) {
-          fileUrls.push({ name: latestFiles[i].getName(), url: latestFiles[i].getUrl() });
+        if (preStatusColIdx !== -1) {
+          var preLastRow = preSheet.getLastRow();
+          var preStatusRange = preSheet.getRange(2, preStatusColIdx + 1, Math.max(preLastRow - 1, 1), 1).getValues();
+          for (var r = 0; r < preStatusRange.length; r++) {
+            if (String(preStatusRange[r][0] || "").trim() === "Success") {
+              reusedRowSet[r + 2] = true;
+            }
+          }
         }
       } catch (e) {
-        // Folder access error - ignore
+        // Sheet read error - ignore, all rows will be considered new
       }
     }
-  }
-}    
-    var html = '<div style="font-family: Roboto, sans-serif; padding: 24px;">';
+
+    var result = RUN_TEMPLATE(templateId);
+
+    // Get file URLs from the sheet's "Merged Doc URL" column (drive.file compatible - no Drive scanning)
+    var fileUrls = [];
+    if ((template.type === "PDF_ONLY" || template.type === "BOTH") && result !== "NO_ROWS_ELIGIBLE" && result && result.indexOf("Error") === -1) {
+      try {
+        var activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+        var allHeaders = GET_ALL_RAW_HEADERS(activeSheet);
+        var mergedUrlColIdx = -1;
+        for (var c = 0; c < allHeaders.length; c++) {
+          if (String(allHeaders[c]).toLowerCase().indexOf("merged doc url") !== -1) {
+            mergedUrlColIdx = c;
+            break;
+          }
+        }
+        if (mergedUrlColIdx !== -1) {
+          var lastRow = activeSheet.getLastRow();
+          var urlRange = activeSheet.getRange(2, mergedUrlColIdx + 1, Math.max(lastRow - 1, 1), 1).getValues();
+          for (var r = urlRange.length - 1; r >= 0; r--) {
+            if (reusedRowSet[r + 2]) continue;
+            var cellUrl = String(urlRange[r][0] || "").trim();
+            if (cellUrl !== "" && cellUrl.indexOf("http") === 0) {
+              fileUrls.push({ name: "Generated Document (Row " + (r + 2) + ")", url: cellUrl });
+              if (fileUrls.length >= 10) break;
+            }
+          }
+        }
+      } catch (e) {
+        // Sheet read error - ignore, file links section will be skipped
+      }
+    }
+    var html = '<style>body{display:block!important;align-items:initial!important;justify-content:initial!important;overflow-y:auto;margin:0;padding:0;}</style><div style="font-family: Roboto, sans-serif; padding: 24px;">';
     
     if (result && result.indexOf("Error") !== -1) {
       html += '<h2 style="color: #c5221f; margin: 0 0 12px 0;">❌ Execution Failed</h2>';
@@ -1104,14 +1038,25 @@ if ((template.type === "PDF_ONLY" || template.type === "BOTH") && result !== "NO
       html += '<p style="margin: 0; color: #137333;"><strong>' + successMsg + '</strong></p>';
       html += '<p style="margin: 5px 0;"><strong>Result:</strong> ' + result.replace(/\n/g, '<br>') + '</p>';
 
-      // Add daily quota info (only for email-related types)
+      // Email quota note (static - no live quota API available in this scope)
       if (template.type !== "PDF_ONLY") {
-        var remainingQuota = MailApp.getRemainingDailyQuota();
-        var quotaColor = remainingQuota < 20 ? '#e37400' : '#137333';
-        html += '<p style="margin: 8px 0 0 0; color: ' + quotaColor + ';"><strong>📊 Daily Email Quota Remaining:</strong> ' + remainingQuota + ' emails</p>';
+        html += '<p style="margin: 8px 0 0 0; color: #c5221f;"><strong>📊 Email Quota:</strong> Check your automated email quota — 100 emails/day for a normal Google account, 1500/day for Google Workspace.</p>';
       }
 
       html += '</div>';
+      
+      // Email details section - MERGED with a real processed row (like Preview)
+      if (template.type === "EMAIL_ONLY" || template.type === "BOTH") {
+        var emailPreview = BUILD_RUN_EMAIL_PREVIEW(template);
+        if (emailPreview) {
+          html += '<div style="background:#e6f4ea; padding:12px; border-radius:6px; margin:10px 0;">';
+          html += '<h3 style="color:#137333; margin:0 0 10px 0;">✉️ Email Details</h3>';
+          html += '<p><strong>To:</strong> ' + escapeHtml(emailPreview.recipientEmail) + '</p>';
+          html += '<p><strong>Subject:</strong> ' + escapeHtml(emailPreview.subject) + '</p>';
+          html += '<div style="border:1px solid #dadce0; padding:12px; border-radius:6px; margin-top:12px; background:#ffffff;"><strong>Email Body:</strong><br><br>' + emailPreview.body + '</div>';
+          html += '</div>';
+        }
+      }
       
       // File links section - MATCHES PREVIEW STYLE
       if (fileUrls.length > 0) {
@@ -1141,6 +1086,102 @@ if ((template.type === "PDF_ONLY" || template.type === "BOTH") && result !== "NO
            '<div style="margin-top: 20px; text-align: center;">' +
            '<button onclick="google.script.host.close()" style="background: #1a73e8; color: white; border: none; padding: 10px 28px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500;">Close</button>' +
            '</div></div>';
+  }
+}
+
+// ==========================================
+// FUNCTION: BUILD_RUN_EMAIL_PREVIEW
+// Merges To/Subject/Body against the first actually-processed row (like Preview)
+// ==========================================
+function BUILD_RUN_EMAIL_PREVIEW(template) {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var allHeaders = GET_ALL_RAW_HEADERS(sheet);
+
+    var emailColIdx = -1;
+    for (var c = 0; c < allHeaders.length; c++) {
+      var hName = String(allHeaders[c]).toLowerCase().trim();
+      if (hName.indexOf("recipient email") !== -1) emailColIdx = c;
+    }
+    if (emailColIdx === -1) emailColIdx = 4;
+
+    var emailStatusColName = "Sent Mail Status - " + template.name;
+    var emailStatusColIdx = -1;
+    for (var c = 0; c < allHeaders.length; c++) {
+      if (String(allHeaders[c]).toLowerCase().trim() === emailStatusColName.toLowerCase()) {
+        emailStatusColIdx = c;
+        break;
+      }
+    }
+
+    var criteriaColIdx = allHeaders.indexOf(template.config.condField);
+    if (criteriaColIdx === -1) criteriaColIdx = 0;
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return null;
+
+    var data = sheet.getRange(2, 1, lastRow - 1, allHeaders.length).getValues();
+    var processedRow = null;
+
+    for (var i = 0; i < data.length; i++) {
+      var evalCellText = String(data[i][criteriaColIdx] || "").trim();
+      var isCriteriaMatch = false;
+      if (template.config.condOperator === "NOT_EMPTY" && evalCellText !== "") {
+        isCriteriaMatch = true;
+      } else if (template.config.condOperator === "CONTAINS" && evalCellText.toLowerCase().indexOf(String(template.config.condValue).toLowerCase().trim()) !== -1) {
+        isCriteriaMatch = true;
+      }
+      if (!isCriteriaMatch) continue;
+
+      var wasSent = emailStatusColIdx !== -1 && String(data[i][emailStatusColIdx] || "").trim() !== "";
+      if (!wasSent) continue;
+
+      processedRow = data[i];
+      break;
+    }
+
+    if (!processedRow) return null;
+
+    var recipientEmail = "example@email.com";
+    var emailToConfig = template.emailConfig?.to || "";
+    if (emailToConfig) {
+      var toTagMatch = emailToConfig.match(/^\{(.+)\}$/);
+      if (toTagMatch) {
+        var toColName = toTagMatch[1];
+        var toColIdx = allHeaders.indexOf(toColName);
+        if (toColIdx !== -1) {
+          recipientEmail = processedRow[toColIdx] || recipientEmail;
+        }
+      } else {
+        recipientEmail = emailToConfig;
+      }
+    } else {
+      recipientEmail = processedRow[emailColIdx] || recipientEmail;
+    }
+
+    var emailSubject = template.emailConfig?.subject || "";
+    var emailBody = template.emailConfig?.body || "";
+
+    for (var h = 0; h < allHeaders.length; h++) {
+      var header = allHeaders[h];
+      if (header) {
+        var val = processedRow[h];
+        if (val instanceof Date) {
+          val = FORMAT_DATE_FOR_DISPLAY(val);
+        } else if (typeof val === 'number') {
+          val = FORMAT_NUMBER_FOR_DISPLAY(val);
+        } else {
+          val = String(val || "");
+        }
+        var regex = new RegExp("\\{" + escapeRegex(header) + "\\}", "g");
+        emailSubject = emailSubject.replace(regex, val);
+        emailBody = emailBody.replace(regex, val);
+      }
+    }
+
+    return { recipientEmail: recipientEmail, subject: emailSubject, body: emailBody };
+  } catch (e) {
+    return null;
   }
 }
 
@@ -1251,50 +1292,22 @@ function CREATE_DOCUMENT_TEMPLATE() {
     var sheet = ss.getActiveSheet();
     var sheetName = sheet.getName();
 
-    // Get the spreadsheet's parent folder
-    var ssFile = DriveApp.getFileById(ss.getId());
-    var parentFolders = ssFile.getParents();
-    var currentFolder = parentFolders.hasNext() ? parentFolders.next() : DriveApp.getRootFolder();
-
-    // Move one level above (Get the grandparent folder)
-    var grandParentFolders = currentFolder.getParents();
-    var targetParentFolder = grandParentFolders.hasNext() ? grandParentFolders.next() : DriveApp.getRootFolder();
-
-    // Create or open the DocuMail PRO Templates folder one level above
-    var folderName = "DocuMail PRO Templates";
-    var templateFolder = null;
-    var existingFolders = targetParentFolder.getFoldersByName(folderName);
-
-    if (existingFolders.hasNext()) {
-      templateFolder = existingFolders.next();
-    } else {
-      templateFolder = targetParentFolder.createFolder(folderName);
-    }
-
-    // Create a beautifully clean, completely blank document
+    // Create a beautifully clean, completely blank document in the root of My Drive
+    // (no folder - users move it to their preferred location for organization)
     var docName = "DocTemplate for " + sheetName;
-    var doc = DocumentApp.create(docName);
-    var docId = doc.getId();
-    var docFile = DriveApp.getFileById(docId);
+    var docFile = Drive.Files.create({
+      name: docName,
+      mimeType: 'application/vnd.google-apps.document'
+    });
+    var docId = docFile.id;
+    var doc = DocumentApp.openById(docId);
 
-    // Move the document to the dedicated templates folder
-    templateFolder.addFile(docFile);
-    DriveApp.getRootFolder().removeFile(docFile);
-  
-    // Save and clear any default contents to guarantee a totally blank canvas
-    var body = doc.getBody();
-    body.clear(); 
+    // Write onboarding text + the sheet link into the footer
+    // (replaces the old userProperties/Drive-description linking mechanism)
+    WRITE_TEMPLATE_ONBOARDING(doc, ss.getId());
 
     doc.saveAndClose();
     var docUrl = doc.getUrl();
-
-    // =======================================================
-    // CRITICAL LINK: SAVE CONTEXT FOR THE DOC SIDEBAR
-    // =======================================================
-    // Save the Sheet ID globally under the user's account properties.
-    // When the Doc sidebar wakes up, it reads this property to fetch your columns.
-    var userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty('CurrentActiveSheetId', ss.getId());
 
     console.log("✅ Blank Template created: " + docName);
     return {
@@ -1302,7 +1315,7 @@ function CREATE_DOCUMENT_TEMPLATE() {
       url: docUrl,
       id: docId,
       name: docName,
-      folder: templateFolder.getName()
+      folder: "My Drive"
     };
 
   } catch (e) {

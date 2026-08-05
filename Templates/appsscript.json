@@ -1,12 +1,31 @@
 {
   "timeZone": "Asia/Kolkata",
-  "dependencies": {
-  },
-  "webapp": {
-    "access": "ANYONE_ANONYMOUS",
-    "executeAs": "USER_DEPLOYING"
-  },
   "exceptionLogging": "STACKDRIVER",
-  "oauthScopes": ["https://www.googleapis.com/auth/documents.currentonly", "https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/script.container.ui"],
-  "runtimeVersion": "V8"
+  "oauthScopes": ["https://www.googleapis.com/auth/documents.currentonly", "https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/script.container.ui"],
+  "runtimeVersion": "V8",
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Sheets",
+        "serviceId": "sheets",
+        "version": "v4"
+      }
+    ]
+  },
+  "addOns": {
+    "common": {
+      "name": "DocuMail Pro",
+      "logoUrl": "https://raw.githubusercontent.com/drsanjiiiv/documail-pro-assets/4de47b3386fa70309ac1876305953ef2d4643ce1/DocuMail-Pro-Logo.png",
+      "layoutProperties": {
+        "primaryColor": "#1a73e8",
+        "secondaryColor": "#137333"
+      }
+    },
+    "docs": {
+      "homepageTrigger": {
+        "runFunction": "INITIALIZE_DOC_DESIGNER_SIDEBAR",
+        "enabled": true
+      }
+    }
+  }
 }

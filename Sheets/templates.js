@@ -215,7 +215,7 @@ function DELETE_TEMPLATE(templateId) {
     deleteEmailColumn = true;
   }
 
-  confirmMessage += "Merge Doc columns of DocuMail PRO Engine will NOT be deleted.\n" +
+  confirmMessage += "Merge Doc columns of DocuMail Pro Engine will NOT be deleted.\n" +
     "Generated PDFs in Drive will NOT be deleted.\n\n" +
     "Are you sure you want to delete this template?";
 
@@ -375,9 +375,8 @@ function DUPLICATE_TEMPLATE(templateId) {
   if (copy.config && copy.config.templateUrl) {
     try {
       var docId = copy.config.templateUrl.split("/d/")[1].split("/")[0];
-      var docFile = DriveApp.getFileById(docId);
-      var newDocFile = docFile.makeCopy("Copy of " + docFile.getName());
-      var newDocUrl = "https://docs.google.com/document/d/" + newDocFile.getId() + "/edit";
+      var newDocFile = Drive.Files.copy({ name: "Copy of " + copy.name + " template" }, docId);
+      var newDocUrl = "https://docs.google.com/document/d/" + newDocFile.id + "/edit";
       copy.config.templateUrl = newDocUrl;
     } catch (e) {
       console.log("Could not copy document template: " + e.message);
@@ -540,7 +539,7 @@ function SAVE_TEMPLATE_WITH_SCHEDULE(templateData, schedule, templateId, sendEma
           "Regards,\n" +
           "DocuMail Pro System Engine";
 
-        MailApp.sendEmail(userEmail, emailSubject, emailBody);
+        GmailApp.sendEmail(userEmail, emailSubject, emailBody);
         console.log("📨 " + actionType + " confirmation email sent to: " + userEmail);
       }
     } catch (err) {

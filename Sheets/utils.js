@@ -23,23 +23,23 @@ function escapeRegex(str) {
 
 function GET_SYSTEM_OAUTH_TOKEN() {
   try {
-    DriveApp.getRootFolder();
     return ScriptApp.getOAuthToken();
   } catch (e) {
     return "";
   }
 }
 
-function UPLOAD_LOCAL_FILE_STREAM(fileObject) {
+function UPLOAD_LOCAL_FILE_STREAM(fileObject, folderId) {
   try {
-    var folderName = "DocuMail Pro Local Uploads";
-    var folders = DriveApp.getFoldersByName(folderName);
-    var targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
     var contentSplit = fileObject.data.split(',');
     var base64Data = contentSplit.length > 1 ? contentSplit[1] : contentSplit[0];
     var fileBlob = Utilities.newBlob(Utilities.base64Decode(base64Data), fileObject.mimeType, fileObject.name);
-    var driveFile = targetFolder.createFile(fileBlob);
-    return { success: true, id: driveFile.getId(), name: driveFile.getName() };
+    var resource = { name: fileObject.name };
+    if (folderId && typeof folderId === "string" && folderId !== "") {
+      resource.parents = [folderId];
+    }
+    var driveFile = Drive.Files.create(resource, fileBlob);
+    return { success: true, id: driveFile.id, name: driveFile.name };
   } catch (err) {
     return { success: false, error: err.message };
   }

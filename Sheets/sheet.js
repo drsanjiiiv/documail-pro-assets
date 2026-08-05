@@ -68,8 +68,8 @@ function GENERATE_DOCUMAIL_TEMPLATE() {
     }
     if (hasSystemCols) {
       ui.alert(
-        "✅ DocuMail PRO Already Configured",
-        "This sheet is already configured with DocuMail PRO system columns.\n\nNo changes are needed.",
+        "✅ DocuMail Pro Already Configured",
+        "This sheet is already configured with DocuMail Pro system columns.\n\nNo changes are needed.",
         ui.ButtonSet.OK
       );
       return;
