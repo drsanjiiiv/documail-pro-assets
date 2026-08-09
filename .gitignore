@@ -5,3 +5,6 @@ SCOPE_REPLY_DRAFT.txt
 SCOPE_REPLY_DRAFT_R01.txt
 SCOPE_REPLY_DRAFT_R02.txt
 VERIFICATION_SUMMARY.txt
+
+# Branding assets (logo/icons/card banner) - kept locally, not in git
+Logos/
