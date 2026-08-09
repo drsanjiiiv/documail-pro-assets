@@ -11,6 +11,7 @@
   },
   "exceptionLogging": "CLOUD",
   "oauthScopes": ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/script.triggers", "https://www.googleapis.com/auth/script.external_request", "https://www.googleapis.com/auth/script.scriptapp", "https://www.googleapis.com/auth/script.container.ui", "https://www.googleapis.com/auth/userinfo.email"],
+  "urlFetchWhitelist": ["https://www.googleapis.com/drive/v3/"],
   "runtimeVersion": "V8",
   "addOns": {
     "common": {

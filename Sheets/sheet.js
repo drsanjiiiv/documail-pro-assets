@@ -255,6 +255,11 @@ function GENERATE_DOCUMAIL_TEMPLATE() {
       "⚠️ Note: The 4 new columns are system locked."
     );
   }
+
+  // =======================================================
+  // AUTO-OPEN SIDEBAR AFTER SUCCESSFUL INITIALIZATION
+  // =======================================================
+  OPEN_SHEETS_SIDEBAR();
 }
 // ==========================================
 // FUNCTION: GENERATE_DOCUMAIL_TEMPLATE Ends

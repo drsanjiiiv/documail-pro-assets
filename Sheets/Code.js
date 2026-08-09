@@ -39,46 +39,51 @@ function onInstall(e) {
 // AUTO-CLOSE SIDEBAR ON SHEET CHANGE
 // ==========================================
 function onSelectionChange(e) {
-  var props = PropertiesService.getDocumentProperties();
-  var anchorSheet = props.getProperty('SIDEBAR_ANCHOR_SHEET');
-  if (!anchorSheet) return;
-
-  var currentSheet = e.range.getSheet().getName();
-  if (currentSheet !== anchorSheet) {
-    props.deleteProperty('SIDEBAR_ANCHOR_SHEET');
-    SpreadsheetApp.getUi().showSidebar(null);
-  }
+  // No-op: the sidebar tracks the ACTIVE sheet (re-rendered via
+  // CHECK_SIDEBAR_REFRESH), so switching tabs simply shows that tab's own
+  // templates instead of closing or reopening anything.
 }
 
 // ==========================================
 // Function (INITIALIZE_ADDON_SIDEBAR) Starts
 // ==========================================
-function INITIALIZE_ADDON_SIDEBAR() {
-  var ui = SpreadsheetApp.getUi();
-  var sheet = SpreadsheetApp.getActiveSheet();
-
-  // =======================================================
-  // CHECK IF SYSTEM COLUMNS EXIST
-  // =======================================================
-  var lastCol = sheet.getLastColumn();
-  var hasSystemColumns = false;
-
-  if (lastCol > 0) {
-    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-    for (var i = 0; i < headers.length; i++) {
-      var hName = String(headers[i]).toLowerCase().trim();
-      if (hName.indexOf("merged doc status") !== -1 ||
-        hName.indexOf("recipient email") !== -1) {
-        hasSystemColumns = true;
-        break;
+function SHEET_HAS_SYSTEM_COLUMNS() {
+  try {
+    var sheet = SpreadsheetApp.getActiveSheet();
+    var lastCol = sheet.getLastColumn();
+    if (lastCol > 0) {
+      var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+      for (var i = 0; i < headers.length; i++) {
+        var hName = String(headers[i]).toLowerCase().trim();
+        if (hName.indexOf("merged doc status") !== -1 ||
+          hName.indexOf("recipient email") !== -1) {
+          return true;
+        }
       }
     }
+  } catch (e) {
+    Logger.log("System column check failed: " + e.toString());
   }
+  return false;
+}
+
+function OPEN_SHEETS_SIDEBAR() {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  var html = HtmlService.createTemplateFromFile('SidebarView');
+  var sidebarUi = html.evaluate()
+    .setTitle("DocuMail Pro")
+    .setSandboxMode(HtmlService.SandboxMode.IFRAME);
+  SpreadsheetApp.getUi().showSidebar(sidebarUi);
+  PropertiesService.getDocumentProperties().setProperty('SIDEBAR_ANCHOR_SHEET', sheet.getName());
+}
+
+function INITIALIZE_ADDON_SIDEBAR() {
+  var ui = SpreadsheetApp.getUi();
 
   // =======================================================
   // IF SYSTEM COLUMNS DON'T EXIST, PROMPT USER
   // =======================================================
-  if (!hasSystemColumns) {
+  if (!SHEET_HAS_SYSTEM_COLUMNS()) {
     var response = ui.alert(
       "⚠️ DocuMail Pro Not Initialized",
       "DocuMail Pro system columns don't exist in this sheet.\n\n" +
@@ -88,7 +93,8 @@ function INITIALIZE_ADDON_SIDEBAR() {
     );
 
     if (response === ui.Button.YES) {
-      // Call the initialization function
+      // GENERATE_DOCUMAIL_TEMPLATE() initializes the sheet and then
+      // auto-opens the Smart Template Engine sidebar for this sheet.
       GENERATE_DOCUMAIL_TEMPLATE();
     }
     return;
@@ -97,12 +103,7 @@ function INITIALIZE_ADDON_SIDEBAR() {
   // =======================================================
   // SYSTEM COLUMNS EXIST - PROCEED WITH SIDEBAR
   // =======================================================
-  var html = HtmlService.createTemplateFromFile('SidebarView');
-  var sidebarUi = html.evaluate()
-    .setTitle("DocuMail Pro")
-    .setSandboxMode(HtmlService.SandboxMode.IFRAME);
-  SpreadsheetApp.getUi().showSidebar(sidebarUi);
-  PropertiesService.getDocumentProperties().setProperty('SIDEBAR_ANCHOR_SHEET', sheet.getName());
+  OPEN_SHEETS_SIDEBAR();
 }
 
   // ==========================================
@@ -151,6 +152,7 @@ function CREATE_DOCUMENT_TEMPLATE_MENU() {
     var sheet = ss.getActiveSheet();
     var sheetName = sheet.getName();
     var sheetId = ss.getId();
+    var workbookName = ss.getName();
 
     // Show the step-by-step animation dialog IMMEDIATELY
     var htmlContent = `
@@ -340,7 +342,7 @@ function CREATE_DOCUMENT_TEMPLATE_MENU() {
           '<div class="title" style="color:#c5221f;">❌ Error</div>' +
           '<div class="error-text">' + error.message + '</div>';
       })
-      .CREATE_TEMPLATE_IN_BACKGROUND("` + sheetName + `", "` + sheetId + `");
+      .CREATE_TEMPLATE_IN_BACKGROUND("` + workbookName + `", "` + sheetName + `", "` + sheetId + `");
   </script>
 </body>
 </html>
@@ -362,12 +364,12 @@ function CREATE_DOCUMENT_TEMPLATE_MENU() {
 // FUNCTION: CREATE_TEMPLATE_IN_BACKGROUND
 // All your existing logic - runs in background while animation shows
 // ==========================================
-function CREATE_TEMPLATE_IN_BACKGROUND(sheetName, sheetId) {
+function CREATE_TEMPLATE_IN_BACKGROUND(workbookName, sheetName, sheetId) {
   try {
     // 1. Create the template document directly in the root of My Drive
     // (no folder - users move it to their preferred location for organization)
     var docFile = Drive.Files.create({
-      name: "DocTemplate for " + sheetName,
+      name: "DocTemplate for " + workbookName + "-" + sheetName,
       mimeType: 'application/vnd.google-apps.document'
     });
     var docId = docFile.id;
@@ -400,16 +402,70 @@ function WRITE_TEMPLATE_ONBOARDING(doc, sheetId) {
 
   var titleParagraph = body.appendParagraph("📄 DocuMail Pro Template Canvas");
   titleParagraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
+  titleParagraph.setBold(true);
+  titleParagraph.setFontSize(24);
+  titleParagraph.setForegroundColor("#1a73e8");
+  titleParagraph.setSpacingAfter(14);
 
-  var descParagraph = body.appendParagraph("\n👉 Go to: Extensions > DocuMail Pro Template > Start Dynamic Doc Template\n\nThis will clear the canvas and link sheet headers, and a DocuMail Pro Template Engine will open on the side, with all the headers available as Variables.\n\nYou are free to insert any variable, any number of times. You can also use Variables with conditions, like when a variable shall be visible.\n\nMake sure to choose Paragraph Text for Paragraph & Table Row for Table, if using conditional insert");
-  descParagraph.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+  var step1 = body.appendParagraph("STEP 1 — MUST DO FIRST: Before opening the sidebar or inserting tags, click Extensions → DocuMail Pro Template → Start Dynamic Template to initialize the canvas and load your variables.");
+  step1.setBold(true);
+  step1.setForegroundColor("#d93025");
+  step1.setFontSize(12);
+  step1.setLineSpacing(1.5);
+  step1.setSpacingAfter(12);
 
-  body.appendParagraph("📁 Your template «" + doc.getName() + "» (auto-named from your sheet) is saved in the root of your My Drive. For better organization, right-click it in Drive, select Move to, and pick your preferred folder before generating documents.\n\n" +
-    "Generated documents and email attachments are saved to the destination folder you choose in Step 6 of the template wizard (a destination folder is required). No folders are auto-created in your Drive.")
-    .setHeading(DocumentApp.ParagraphHeading.NORMAL);
+  var descParagraph = body.appendParagraph("This clears the canvas, links your sheet headers, and opens the DocuMail Pro Template Engine on the side, with all the headers available as Variables.\n\nYou are free to insert any variable, any number of times. You can also use Variables with conditions, like when a variable shall be visible.\n\nMake sure to choose Paragraph Text for Paragraph & Table Row for Table, if using conditional insert.");
+  descParagraph.setFontSize(12);
+  descParagraph.setLineSpacing(1.5);
+  descParagraph.setSpacingAfter(12);
+  descParagraph.setForegroundColor("#000000");
+  descParagraph.setBold(false);
+  descParagraph.setUnderline(false);
+  descParagraph.setItalic(false);
+
+  var infoPara = body.appendParagraph("");
+  infoPara.setFontSize(12);
+  infoPara.setLineSpacing(1.5);
+  infoPara.setSpacingAfter(12);
+  infoPara.setForegroundColor("#000000");
+  infoPara.setBold(false);
+  infoPara.setUnderline(false);
+  infoPara.setItalic(false);
+  infoPara.appendText("📁 Your document «");
+  var nameRun = infoPara.appendText(doc.getName());
+  nameRun.setBold(true);
+  nameRun.setForegroundColor("#1a73e8");
+  var restRun = infoPara.appendText("» (auto-named from your sheet) is saved in the root of your My Drive. For better organization, right-click it in Drive, select Move to, and pick your preferred folder before generating documents.\n\nGenerated documents and email attachments are saved to the destination folder you choose in Step 6 of the template wizard (a destination folder is required). No folders are auto-created in your Drive.");
+  restRun.setForegroundColor("#000000");
+  restRun.setBold(false);
+  restRun.setUnderline(false);
+  restRun.setItalic(false);
+
+  var tipPara = body.appendParagraph("");
+  tipPara.setFontSize(12);
+  tipPara.setLineSpacing(1.5);
+  tipPara.setSpacingAfter(12);
+  tipPara.setForegroundColor("#000000");
+  tipPara.setBold(false);
+  var tipRun = tipPara.appendText("💡 GOOD NEWS: You can also link your EXISTING documents to another spreadsheet — open your Google Doc → Extensions → DocuMail Pro Template → Link to Spreadsheet in the sidebar.");
+  tipRun.setForegroundColor("#1a73e8");
+  tipRun.setBold(false);
+  tipRun.setUnderline(false);
+
+  var linkPara = body.appendParagraph("");
+  linkPara.setFontSize(12);
+  linkPara.setLineSpacing(1.5);
+  linkPara.setSpacingAfter(12);
+  var linkRun = linkPara.appendText("Tutorial: Google Workspace & Marketplace Add-ons: Automate Your Business");
+  linkRun.setForegroundColor("#d93025");
+  linkRun.setBold(true);
+  linkRun.setLinkUrl("https://www.youtube.com/playlist?list=PLBCXreD1tHR0");
 
   var footer = doc.getFooter() || doc.addFooter();
   footer.setText('DOCUMAIL_SOURCE_SHEET_ID=' + sheetId);
+  var footerText = footer.editAsText();
+  footerText.setFontSize(7);
+  footerText.setForegroundColor("#000000");
 }
 
 // ==========================================
@@ -1291,10 +1347,11 @@ function CREATE_DOCUMENT_TEMPLATE() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getActiveSheet();
     var sheetName = sheet.getName();
+    var workbookName = ss.getName();
 
     // Create a beautifully clean, completely blank document in the root of My Drive
     // (no folder - users move it to their preferred location for organization)
-    var docName = "DocTemplate for " + sheetName;
+    var docName = "DocTemplate for " + workbookName + "-" + sheetName;
     var docFile = Drive.Files.create({
       name: docName,
       mimeType: 'application/vnd.google-apps.document'

@@ -35,6 +35,17 @@ function GET_ALL_TEMPLATES(optSheetName) {
   }
 }
 
+function GET_SIDEBAR_TEMPLATES() {
+  try {
+    // The sidebar always reflects the currently-ACTIVE sheet so each tab
+    // shows its own templates ("No templates" when the tab has none).
+    return GET_ALL_TEMPLATES(SpreadsheetApp.getActiveSheet().getName());
+  } catch (e) {
+    console.error("GET_SIDEBAR_TEMPLATES error: " + e.message);
+    return [];
+  }
+}
+
 function SAVE_TEMPLATE(template) {
   var key = GET_TEMPLATES_KEY();
   var templates = GET_ALL_TEMPLATES();

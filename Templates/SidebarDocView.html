@@ -62,13 +62,137 @@
     .hidden {
       display: none;
     }
+
+    .link-card {
+      background: #f8f9fa;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+    }
+
+    .link-card h3 {
+      margin: 0 0 6px 0;
+      color: #1a73e8;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .link-card p {
+      margin: 0 0 10px 0;
+      font-size: 11px;
+      color: #5f6368;
+      line-height: 1.5;
+    }
+
+    .link-card .linked-name {
+      font-weight: 600;
+      color: #137333;
+    }
+
+    .link-card .link-status {
+      font-size: 11px;
+      color: #5f6368;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+
+    .link-card .btn-blue {
+      width: 100%;
+      padding: 12px;
+      box-sizing: border-box;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .link-card .btn-blue:hover {
+      background: #04fbbc;
+      color: #1a73e8;
+      transform: scale(1.02);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .link-card .btn-blue:active {
+      transform: scale(0.97);
+      background: #e6a800;
+    }
+
+    .action {
+      padding: 8px 20px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    button.action:hover {
+      background: #04fbbc !important;
+      color: #1a73e8 !important;
+      transform: scale(1.02);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    button.action:active {
+      transform: scale(0.97);
+      background: #e6a800 !important;
+    }
+
+    .link-card .link-error {
+      display: none;
+      background: #fce8e6;
+      color: #c5221f;
+      border-left: 4px solid #c5221f;
+      padding: 8px 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 11px;
+    }
+
+    .link-card .link-success {
+      display: none;
+      background: #e6f4ea;
+      color: #137333;
+      border-left: 4px solid #137333;
+      padding: 8px 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 11px;
+    }
   </style>
 </head>
 
 <body>
 
   <div id="main-panel">
-    <div class="card">
+
+    <div class="link-card" id="link-card">
+      <h3>🔗 Linked Spreadsheet</h3>
+      <div class="link-status" id="link-status">Loading link status...</div>
+      <button type="button" class="btn-blue" id="link-picker-btn" onclick="launchSpreadsheetPicker()">📂
+        Browse Spreadsheet</button>
+      <div class="link-error" id="link-error"></div>
+      <div class="link-success" id="link-success"></div>
+    </div>
+
+    <div class="card" id="smart-variable-card">
       <h3>Insert Smart Variable</h3>
 
       <div class="form-group">
@@ -140,30 +264,160 @@
     <a href="https://apps.pwmai.com/privacy-policy/" target="_blank">Privacy Policy</a>
   </div>
 
+  <script src="https://apis.google.com/js/api.js"></script>
+
   <script>
+    var pickerApiLoaded = false;
+    var oAuthTokenSecureStr = "";
+
     function showError(err) {
-      document.getElementById('main-panel').innerHTML =
-        '<div class="card" style="text-align:center;">' +
-        '<h3 style="color:#c5221f;">❌ Connection Error</h3>' +
-        '<p style="font-size:12px;color:#5f6368;">' + err.message + '</p>' +
-        '<p style="font-size:11px;color:#9aa0a6;margin-top:12px;">' +
-        'Make sure this template was created from a sheet via "Create Dynamic Doc Template From Sheet".</p>' +
-        '</div>';
+      var mainPanel = document.getElementById('main-panel');
+      var existingHint = document.getElementById('variables-hint');
+      if (!existingHint) {
+        var hint = document.createElement('div');
+        hint.id = 'variables-hint';
+        hint.className = 'card';
+        hint.style.textAlign = 'center';
+        hint.innerHTML =
+          '<h3 style="margin:0 0 8px 0;color:#5f6368;">📝 Insert Smart Variable</h3>' +
+          '<p style="font-size:12px;color:#9aa0a6;">Link a spreadsheet above to load available variables.</p>';
+        mainPanel.appendChild(hint);
+      }
+      var smartCard = document.getElementById('smart-variable-card');
+      if (smartCard) smartCard.style.display = 'none';
     }
 
     // Populate dropdowns (Assume getSheetHeaders is available)
-    window.onload = () => google.script.run
-      .withSuccessHandler(populateDropdowns)
-      .withFailureHandler(showError)
-      .getSheetHeaders();
+    window.onload = () => {
+      google.script.run
+        .withSuccessHandler(renderLinkStatus)
+        .withFailureHandler(() => {})
+        .GET_LINK_STATUS();
+      google.script.run
+        .withSuccessHandler(populateDropdowns)
+        .withFailureHandler(showError)
+        .getSheetHeaders();
+    };
 
     function populateDropdowns(headers) {
       const selects = document.querySelectorAll('select.header-dropdown');
-      selects.forEach(s => headers.forEach(h => {
-        let o = document.createElement('option'); o.value = h; o.textContent = h; s.appendChild(o);
-      }));
+      selects.forEach(s => {
+        s.innerHTML = '';
+        headers.forEach(h => {
+          let o = document.createElement('option'); o.value = h; o.textContent = h; s.appendChild(o);
+        });
+      });
       updateContentInput();
     }
+
+    // ============================================================
+    // LINK SPREADSHEET (GOOGLE PICKER) - Plan A
+    // ============================================================
+
+    function initiateNativeGooglePickerLibraries() {
+      if (typeof gapi === 'undefined') return;
+      gapi.load('picker', {
+        callback: function () {
+          pickerApiLoaded = true;
+          google.script.run.withSuccessHandler(function (token) {
+            oAuthTokenSecureStr = token;
+            var pBtn = document.getElementById('link-picker-btn');
+            if (pBtn) pBtn.disabled = false;
+          }).GET_SYSTEM_OAUTH_TOKEN();
+        }
+      });
+    }
+
+    function launchSpreadsheetPicker() {
+      if (!pickerApiLoaded || !oAuthTokenSecureStr) {
+        showLinkError('Please wait, loading Drive components...');
+        return;
+      }
+      var view = new google.picker.View(google.picker.ViewId.SPREADSHEETS);
+      new google.picker.PickerBuilder()
+        .addView(view)
+        .setAppId("337774023280")
+        .setDeveloperKey("AIzaSyCMHFpUHIVCgd8nviO88SdNWw1YWOtLqIs")
+        .setOAuthToken(oAuthTokenSecureStr)
+        .setOrigin(google.script.host.origin)
+        .setSize(800, 600)
+        .setTitle("Select Spreadsheet")
+        .setCallback(function (data) {
+          if (data.action === google.picker.Action.PICKED) {
+            var doc = data.docs[0];
+            google.script.run
+              .withSuccessHandler(handleLinkResult)
+              .withFailureHandler(function (err) {
+                showLinkError(err.message || 'Could not link that spreadsheet.');
+              })
+              .LINK_SHEET_TO_TEMPLATE(doc.id);
+          }
+        })
+        .build()
+        .setVisible(true);
+    }
+
+    function renderLinkStatus(status) {
+      var statusEl = document.getElementById('link-status');
+      if (!statusEl) return;
+      if (status && status.linked) {
+        statusEl.innerHTML =
+          'Linked to: <span class="linked-name">' + escapeHtml(status.sheetName || 'Unknown sheet') + '</span> ✅' +
+          '<br><br>⚠️ Changing the sheet will remove existing variables from the sidebar, and the template might not work if variables don\'t match the new sheet\'s headers. It is suggested to clear all old variables before proceeding.';
+        var btn = document.getElementById('link-picker-btn');
+        if (btn) btn.textContent = '📂 Change Spreadsheet';
+      } else {
+        statusEl.textContent =
+          'This template isn\'t connected to a data sheet yet. Link it to fetch its headers as variables.';
+        var btn = document.getElementById('link-picker-btn');
+        if (btn) btn.textContent = '📂 Browse Spreadsheet';
+      }
+    }
+
+    function handleLinkResult(res) {
+      if (res && res.success) {
+        showLinkSuccess(
+          '✅ Linked to "' + escapeHtml(res.sheetName || '') + '". Headers loaded!' +
+          (res.matched !== undefined && res.unmatched !== undefined
+            ? ' Matching variables: ' + res.matched.length + ' matched, ' + res.unmatched.length + ' unmatched.'
+            : '')
+        );
+        renderLinkStatus({ linked: true, sheetName: res.sheetName });
+        var smartCard = document.getElementById('smart-variable-card');
+        if (smartCard) smartCard.style.display = '';
+        var hint = document.getElementById('variables-hint');
+        if (hint) hint.remove();
+        populateDropdowns(res.headers);
+      } else if (res && res.error) {
+        showLinkError(res.error);
+      }
+    }
+
+    function showLinkError(msg) {
+      var errBox = document.getElementById('link-error');
+      var okBox = document.getElementById('link-success');
+      if (errBox) { errBox.textContent = '❌ ' + msg; errBox.style.display = 'block'; }
+      if (okBox) okBox.style.display = 'none';
+    }
+
+    function showLinkSuccess(msg) {
+      var errBox = document.getElementById('link-error');
+      var okBox = document.getElementById('link-success');
+      if (errBox) errBox.style.display = 'none';
+      if (okBox) { okBox.textContent = msg; okBox.style.display = 'block'; }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>]/g, function (m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+      });
+    }
+
+    initiateNativeGooglePickerLibraries();
 
     function toggleConditional(show) {
       document.getElementById('conditional-fields').classList.toggle('hidden', !show);

@@ -360,7 +360,7 @@
             </div>
           `;
         })
-        .GET_ALL_TEMPLATES();
+        .GET_SIDEBAR_TEMPLATES();
     }
 
     // ==========================================
@@ -483,6 +483,10 @@
     function checkForServerRefresh() {
       google.script.run
         .withSuccessHandler(function(signal) {
+          if (signal === "__CLOSE__") {
+            window.lastSignal = signal;
+            return;
+          }
           if (signal && signal !== window.lastSignal) {
             window.lastSignal = signal;
             loadTemplates();

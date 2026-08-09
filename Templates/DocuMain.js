@@ -23,23 +23,118 @@ function showHelp() {
 }
 
 /**
- * Open Smart Variable Window - Opens the sidebar WITHOUT resetting the canvas
+ * Classifies the active document into one of:
+ *   'initialized' - marker set or a source sheet is already linked
+ *   'footer'      - created from a DocuMail Pro sheet (footer link) but not yet
+ *                   initialized
+ *   'blank'       - empty body, no footer, no link
+ *   'custom'      - an existing document with its own content (no footer/link)
  */
-function OPEN_SMART_VARIABLE_WINDOW() {
+function GET_TEMPLATE_STATE() {
+  try {
+    var props = PropertiesService.getDocumentProperties();
+    if (props.getProperty('DOCUMAIL_TEMPLATE_INITIALIZED') === 'true') return 'initialized';
+    if (props.getProperty('DOCUMAIL_SOURCE_SHEET_ID')) return 'initialized';
+
+    var doc = DocumentApp.getActiveDocument();
+    var footer = doc.getFooter();
+    if (footer && footer.getText().indexOf('DOCUMAIL_SOURCE_SHEET_ID=') !== -1) return 'footer';
+
+    var bodyText = doc.getBody().getText().trim();
+    if (bodyText.length === 0) return 'blank';
+    return 'custom';
+  } catch (e) {
+    return 'custom';
+  }
+}
+
+/**
+ * Renders the Smart Variable sidebar panel.
+ */
+function showTemplateSidebar(title) {
+  var htmlOutput = HtmlService.createTemplateFromFile('SidebarDocView')
+    .evaluate()
+    .setTitle(title || 'DocuMail Pro - Smart Variables')
+    .setWidth(300);
+  DocumentApp.getUi().showSidebar(htmlOutput);
+}
+
+/**
+ * Shared gated sidebar opener.
+ * @param {boolean} showBlankHint - only the "Open Smart Variable Window" menu
+ *        shows the informational hint on blank documents; the Link menu skips it.
+ */
+function openSidebarGate(showBlankHint) {
   try {
     var ui = DocumentApp.getUi();
+    var state = GET_TEMPLATE_STATE();
 
-    // Evaluate and render the HTML sidebar panel
-    var htmlOutput = HtmlService.createTemplateFromFile('SidebarDocView')
-      .evaluate()
-      .setTitle('DocuMail Pro - Smart Variables')
-      .setWidth(300);
+    // Sheet-created templates must be initialized before the sidebar can open.
+    if (state === 'footer') {
+      var initResponse = ui.alert(
+        '⚠️ DocuMail Pro Template Not Initiated',
+        'Template is not initiated yet. Do you want to initialize it now?',
+        ui.ButtonSet.YES_NO
+      );
+      if (initResponse !== ui.Button.YES) {
+        DocumentApp.getActiveDocument().toast(
+          'Initialization cancelled. Run "Initialize DocuMail Pro Template" when you are ready.',
+          "DocuMail Pro", 4
+        );
+        return;
+      }
+      INITIALIZE_DOC_DESIGNER_SIDEBAR();
+      return;
+    }
 
-    ui.showSidebar(htmlOutput);
+    // Blank documents: explain that they need to be linked first (only for the
+    // "Open Smart Variable Window" entry point).
+    if (state === 'blank' && showBlankHint) {
+      ui.alert(
+        '💡 DocuMail Pro Template',
+        'This template was not created from a spreadsheet using the DocuMail Pro Sheets add-on.\n\n' +
+        'Link the document to an existing spreadsheet via "Link Spreadsheet" in the sidebar or from the menu, to fetch the sheet headers as variables of this document.',
+        ui.ButtonSet.OK
+      );
+    }
+
+    // initialized / custom / blank: open the sidebar so the user can link or
+    // insert variables.
+    showTemplateSidebar('DocuMail Pro - Smart Variables');
 
   } catch (error) {
     Logger.log("Error opening sidebar: " + error.toString());
     DocumentApp.getUi().alert("Could not open sidebar: " + error.message);
+  }
+}
+
+/**
+ * Open Smart Variable Window - Opens the sidebar WITHOUT resetting the canvas.
+ * Shows the informational hint on blank documents.
+ */
+function OPEN_SMART_VARIABLE_WINDOW() {
+  openSidebarGate(true);
+}
+
+/**
+ * Link to Spreadsheet menu item - Opens the sidebar WITHOUT the blank-document
+ * hint (linking is the direct action here).
+ */
+function OPEN_SMART_VARIABLE_WINDOW_FROM_LINK_MENU() {
+  openSidebarGate(false);
+}
+
+/**
+ * Homepage auto-open: only shows the sidebar for already-initialized/linked
+ * templates. For footer/blank/custom documents it does nothing, so the canvas
+ * guidance stays visible (no auto-opening that contradicts the Step-1 warning).
+ */
+function OPEN_SMART_VARIABLE_WINDOW_FROM_HOMEPAGE() {
+  try {
+    if (GET_TEMPLATE_STATE() !== 'initialized') return;
+    showTemplateSidebar('DocuMail Pro - Smart Variables');
+  } catch (error) {
+    Logger.log("Could not open sidebar from homepage: " + error.toString());
   }
 }
 
@@ -70,30 +165,17 @@ function INITIALIZE_DOC_DESIGNER_SIDEBAR() {
       footer.setText("");
     }
 
-    // 2. Define our standard onboarding placeholder phrases
-    // (must match the text written by the Sheets add-on in WRITE_TEMPLATE_ONBOARDING)
-    var line1 = "📄 DocuMail Pro Template Canvas";
-    var line2 = "Extensions > DocuMail Pro Template > Start Dynamic Doc Template";
-
-    // Check if the document contains content that isn't our onboarding text
-    var hasCustomContent = false;
+    // 2. If the page has any text, warn before wiping it
     if (currentText.length > 0) {
-      if (currentText.indexOf(line1) === -1 || currentText.indexOf(line2) === -1) {
-        hasCustomContent = true;
-      }
-    }
-
-    // 3. Trigger Confirmation Box if custom user data is detected
-    if (hasCustomContent) {
       var response = ui.alert(
-        '⚠️ Confirm Canvas Reset',
-        'There is data in your document, it will be erased. Are you sure?',
+        '⚠️ Confirm Initialization',
+        'Initializing will clear the content of the page. Make sure you want to proceed before initializing.',
         ui.ButtonSet.YES_NO
       );
 
       // If user clicks "NO", stop execution instantly
       if (response !== ui.Button.YES) {
-        doc.toast("Operation cancelled. Your existing template was saved.", "🚀 DocuMail Pro");
+        doc.toast("Initialization cancelled. Your existing template was saved.", "🚀 DocuMail Pro");
         return;
       }
     }
@@ -106,7 +188,10 @@ function INITIALIZE_DOC_DESIGNER_SIDEBAR() {
     }
     pars[0].setText(" ");
 
-    // 5. Evaluate and render the HTML sidebar panel
+    // 5. Mark as initialized so future sidebar opens skip the gate
+    PropertiesService.getDocumentProperties().setProperty('DOCUMAIL_TEMPLATE_INITIALIZED', 'true');
+
+    // 6. Evaluate and render the HTML sidebar panel
     var htmlOutput = HtmlService.createTemplateFromFile('SidebarDocView')
       .evaluate()
       .setTitle('DocuMail Pro - Template Designer')

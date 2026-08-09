@@ -136,9 +136,13 @@ function EXECUTE_TEMPLATE_ACTION(params) {
 
 function CHECK_SIDEBAR_REFRESH() {
   try {
+    var props = PropertiesService.getDocumentProperties();
     var sheetName = SpreadsheetApp.getActiveSheet().getName();
+
+    // Signal includes the active sheet name so ANY tab move/return changes
+    // the value and the sidebar immediately reloads that tab's own templates.
     var key = 'SIDEBAR_REFRESH_SIGNAL_KEY_' + sheetName;
-    return PropertiesService.getDocumentProperties().getProperty(key) || "";
+    return sheetName + "|" + (props.getProperty(key) || "");
   } catch (e) {
     console.log("Error reading layout sync properties: " + e.message);
     return "";

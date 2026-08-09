@@ -30,6 +30,7 @@ function createMenu() {
   ui.createAddonMenu()
     .addItem('📄 Initialize DocuMail Pro Template', 'INITIALIZE_DOC_DESIGNER_SIDEBAR')
     .addItem('📝 Open Smart Variable Window', 'OPEN_SMART_VARIABLE_WINDOW')
+    .addItem('🔗 Link to Spreadsheet', 'OPEN_SMART_VARIABLE_WINDOW_FROM_LINK_MENU')
     .addSeparator()
     .addItem('❓ Help', 'showHelp')
     .addToUi();
