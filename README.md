@@ -33,3 +33,8 @@ DocuMail Pro is designed for corporate and enterprise-grade privacy. All computa
 
 ## 📬 Support & Issue Tracking
 Encountered a bug or want to suggest a new dashboard control? Please use the **Issues** tab at the top of this repository to log and track your feedback.
+
+---
+
+## 🎬 Video Tutorial
+Watch the full **DocuMail Pro** walkthrough on YouTube: [https://youtu.be/oZU2c0XJQgs](https://youtu.be/oZU2c0XJQgs)
