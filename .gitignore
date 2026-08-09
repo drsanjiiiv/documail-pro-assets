@@ -8,3 +8,8 @@ VERIFICATION_SUMMARY.txt
 
 # Branding assets (logo/icons/card banner) - kept locally, not in git
 Logos/
+
+# Temporarily untracked while Google Picker developer key is pending
+# rotation during GitHub secret-review (post-review re-add after key is revoked)
+Sheets/DocConfigView.html
+Templates/SidebarDocView.html
